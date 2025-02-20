@@ -1,0 +1,56 @@
+plugins {
+    id 'org.springframework.boot' version '3.2.3'
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'java'
+}
+
+group = 'com.inspection'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '17'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+    implementation 'org.springframework.boot:spring-boot-devtools'
+    
+    implementation 'mysql:mysql-connector-java:8.0.33'
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    implementation 'com.twilio.sdk:twilio:9.14.1'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // JWT 의존성 추가
+    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+    // PDF 생성을 위한 iText 의존성
+    implementation 'com.itextpdf:kernel:7.2.5'
+    implementation 'com.itextpdf:layout:7.2.5'
+    implementation 'com.itextpdf:io:7.2.5'
+
+    implementation 'com.squareup.okhttp3:okhttp:4.9.3'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.9.3'
+
+    //민감정보 .env
+    implementation 'io.github.cdimascio:dotenv-java:2.3.2'
+
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'com.sun.mail:jakarta.mail:2.0.1'
+
+    implementation 'org.apache.pdfbox:pdfbox:2.0.27'
+    
+    // 이미지 처리
+    implementation 'org.imgscalr:imgscalr-lib:4.2'
+}
