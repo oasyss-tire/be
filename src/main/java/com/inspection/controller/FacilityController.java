@@ -21,6 +21,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
+import com.inspection.dto.FacilityStatusHistoryDTO;
 
 @RestController
 @RequestMapping("/api/facilities")
@@ -159,5 +160,21 @@ public class FacilityController {
     @GetMapping("/{facilityId}/images")
     public ResponseEntity<List<FacilityImageDTO>> getFacilityImages(@PathVariable Long facilityId) {
         return ResponseEntity.ok(facilityService.getFacilityImages(facilityId));
+    }
+
+    // 상태 이력 조회 엔드포인트 추가
+    @GetMapping("/{facilityId}/status-history")
+    public ResponseEntity<List<FacilityStatusHistoryDTO>> getStatusHistory(@PathVariable Long facilityId) {
+        return ResponseEntity.ok(facilityService.getStatusHistory(facilityId));
+    }
+
+    // 위치 변경
+    @PutMapping("/{facilityId}/location")
+    public ResponseEntity<FacilityDTO> updateLocation(
+            @PathVariable Long facilityId,
+            @RequestParam String location) {
+        FacilityDTO dto = new FacilityDTO();
+        dto.setCurrentLocation(location);
+        return ResponseEntity.ok(facilityService.updateFacility(facilityId, dto));
     }
 } 

@@ -23,6 +23,9 @@ import org.springframework.web.multipart.MultipartFile;
 import com.inspection.repository.FacilityImageRepository;
 import com.inspection.service.ImageService;
 import java.util.List;
+import com.inspection.entity.FacilityStatusHistory;
+import com.inspection.repository.FacilityStatusHistoryRepository;
+import com.inspection.dto.FacilityStatusHistoryDTO;
 
 
 
@@ -34,6 +37,7 @@ public class FacilityService {
     private final FacilityContractRepository contractRepository;
     private final FacilityImageRepository facilityImageRepository;
     private final ImageService imageService;  // FileService 대신 ImageService 주입
+    private final FacilityStatusHistoryRepository historyRepository;
 
     // 시설물 등록
     @Transactional
@@ -81,14 +85,22 @@ public class FacilityService {
 
     // 시설물 상태 변경
     @Transactional
-    public FacilityDTO updateStatus(Long facilityId, FacilityStatus newStatus) {
+    public FacilityDTO updateStatus(Long facilityId, FacilityStatus status) {
         Facility facility = facilityRepository.findById(facilityId)
             .orElseThrow(() -> new RuntimeException("시설물을 찾을 수 없습니다."));
         
-        facility.setStatus(newStatus);
-        facility.setStatusChangeDate(LocalDate.now());
+        // 상태 변경
+        facility.setStatus(status);
         
-        return convertToDTO(facilityRepository.save(facility));
+        // 이력 저장
+        FacilityStatusHistory history = FacilityStatusHistory.createHistory(
+            facility, 
+            status, 
+            facility.getCurrentLocation()
+        );
+        historyRepository.save(history);
+        
+        return convertToDTO(facility);
     }
 
     // Entity -> DTO 변환 메서드 추가
@@ -204,20 +216,36 @@ public class FacilityService {
             facility.setCompany(newCompany);
         }
         
+        // 상태나 위치가 변경된 경우 이력 저장
+        if ((dto.getStatus() != null && facility.getStatus() != dto.getStatus()) ||
+            (dto.getCurrentLocation() != null && !dto.getCurrentLocation().equals(facility.getCurrentLocation()))) {
+            
+            // 상태 변경
+            if (dto.getStatus() != null) {
+                facility.setStatus(dto.getStatus());
+            }
+            
+            // 위치 변경
+            if (dto.getCurrentLocation() != null) {
+                facility.setCurrentLocation(dto.getCurrentLocation());
+            }
+            
+            // 이력 저장
+            FacilityStatusHistory history = FacilityStatusHistory.createHistory(
+                facility,
+                facility.getStatus(),
+                facility.getCurrentLocation()
+            );
+            historyRepository.save(history);
+        }
+        
         // 기본 정보 업데이트
         facility.setName(dto.getName());
         facility.setCode(dto.getCode());
         facility.setLocation(dto.getLocation());
         facility.setAcquisitionCost(dto.getAcquisitionCost());
         facility.setAcquisitionDate(dto.getAcquisitionDate());
-        facility.setCurrentLocation(dto.getCurrentLocation());
         facility.setDescription(dto.getDescription());
-        
-        // 상태가 변경된 경우
-        if (dto.getStatus() != null && facility.getStatus() != dto.getStatus()) {
-            facility.setStatus(dto.getStatus());
-            facility.setStatusChangeDate(LocalDate.now());
-        }
         
         return convertToDTO(facilityRepository.save(facility));
     }
@@ -306,5 +334,23 @@ public class FacilityService {
         return facility.getImages().stream()
             .map(this::convertToImageDTO)
             .collect(Collectors.toList());
+    }
+
+    // 이력 조회 메서드 추가
+    public List<FacilityStatusHistoryDTO> getStatusHistory(Long facilityId) {
+        return historyRepository.findByFacilityIdOrderByStatusChangeDateDesc(facilityId)
+            .stream()
+            .map(this::convertToHistoryDTO)
+            .collect(Collectors.toList());
+    }
+
+    // DTO 변환 메서드
+    private FacilityStatusHistoryDTO convertToHistoryDTO(FacilityStatusHistory history) {
+        FacilityStatusHistoryDTO dto = new FacilityStatusHistoryDTO();
+        dto.setId(history.getId());
+        dto.setStatus(history.getStatus());
+        dto.setCurrentLocation(history.getCurrentLocation());
+        dto.setStatusChangeDate(history.getStatusChangeDate());
+        return dto;
     }
 } 
