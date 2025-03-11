@@ -11,6 +11,7 @@ import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.dto.ContractPdfFieldDTO;
+import com.inspection.repository.ContractPdfFieldRepository;
 
 @Service
 @Transactional
@@ -19,43 +20,27 @@ public class ContractTemplateService {
     private final PdfProcessingService pdfProcessingService;
     private final PdfStorageService pdfStorageService;
     private final ContractTemplateRepository templateRepository;
+    private final ContractPdfFieldRepository contractPdfFieldRepository;
     
-    public ContractTemplate createTemplate(String templateName, String originalPdfId, List<ContractPdfFieldDTO> fieldDtos) throws IOException {
-        // DTO를 Entity로 변환
-        List<ContractPdfField> fields = fieldDtos.stream()
-            .map(dto -> {
-                ContractPdfField field = new ContractPdfField();
-                field.setFieldId(dto.getId());
-                field.setPdfId(originalPdfId);
-                field.setFieldName(dto.getFieldName());
-                field.setType(dto.getType());
-                field.setRelativeX(dto.getRelativeX());
-                field.setRelativeY(dto.getRelativeY());
-                field.setRelativeWidth(dto.getRelativeWidth());
-                field.setRelativeHeight(dto.getRelativeHeight());
-                field.setPage(dto.getPage());
-                return field;
-            })
-            .collect(Collectors.toList());
-
-        // 1. 템플릿 기본 정보 설정
-        ContractTemplate template = new ContractTemplate();
-        template.setTemplateName(templateName);
-        template.setOriginalPdfId(originalPdfId);
-        template.setCreatedAt(LocalDateTime.now());
-        template.setActive(true);
+    public ContractTemplate createTemplate(String templateName, String originalPdfId, String description) throws IOException {
+        // 1. 기존 필드 조회
+        List<ContractPdfField> existingFields = contractPdfFieldRepository.findByPdfId(originalPdfId);
         
-        // 2. 필드 연결
-        template.addFields(fields);
-        
-        // 3. 서명 영역이 표시된 PDF 생성 및 저장
+        // 2. 템플릿 PDF 생성 (파일명 형식 통일)
         byte[] originalPdf = pdfStorageService.loadPdf(originalPdfId);
-        byte[] processedPdf = pdfProcessingService.addFieldsToPdf(originalPdf, fields);
-        String processedPdfId = originalPdfId.replace(".pdf", "_with_fields.pdf");
+        byte[] processedPdf = pdfProcessingService.addFieldsToPdf(originalPdf, existingFields);
+        String processedPdfId = originalPdfId.replace(".pdf", "_template.pdf");
         pdfStorageService.savePdf(processedPdfId, processedPdf);
         
-        // 4. 처리된 PDF ID 저장
+        // 3. 템플릿 생성 및 저장
+        ContractTemplate template = new ContractTemplate();
+        template.setTemplateName(templateName);
+        template.setDescription(description);
+        template.setOriginalPdfId(originalPdfId);
         template.setProcessedPdfId(processedPdfId);
+        template.setCreatedAt(LocalDateTime.now());
+        template.setActive(true);
+        template.addFields(existingFields);
         
         return templateRepository.save(template);
     }
@@ -70,14 +55,25 @@ public class ContractTemplateService {
     }
     
     // 추가 유틸리티 메서드들
-    public List<ContractTemplate> getActiveTemplates() {
-        return templateRepository.findByIsActiveTrue();
-    }
+    // @Transactional(readOnly = true)
+    // public List<ContractTemplate> getActiveTemplates() {
+    //     return templateRepository.findByIsActiveTrue();
+    // }
     
     public void deactivateTemplate(Long templateId) {
         ContractTemplate template = templateRepository.findById(templateId)
             .orElseThrow(() -> new RuntimeException("Template not found"));
         template.setActive(false);
         templateRepository.save(template);
+    }
+    
+    public ContractTemplate getTemplate(Long templateId) {
+        return templateRepository.findById(templateId)
+            .orElseThrow(() -> new RuntimeException("Template not found: " + templateId));
+    }
+    
+    @Transactional(readOnly = true)
+    public List<ContractTemplate> getAllTemplates() {
+        return templateRepository.findAllTemplates();  // 모든 템플릿 조회
     }
 } 

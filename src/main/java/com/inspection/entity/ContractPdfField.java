@@ -55,7 +55,7 @@ public class ContractPdfField {
     private LocalDateTime updatedAt;
 
     @ManyToOne
-    @JoinColumn(name = "template_id")
+    @JoinColumn(name = "template_id")  // 실제 DB 컬럼명
     private ContractTemplate template;
 
     public String getValue() {
@@ -64,5 +64,15 @@ public class ContractPdfField {
 
     public void setValue(String value) {
         this.value = value;
+    }
+
+    @PrePersist
+    public void prePersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (updatedAt == null) {
+            updatedAt = LocalDateTime.now();
+        }
     }
 } 

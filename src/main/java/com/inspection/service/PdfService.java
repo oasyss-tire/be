@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
 import com.inspection.dto.SignaturePositionRequest;
 import com.inspection.dto.SignatureRequest;
@@ -246,6 +247,51 @@ public class PdfService {
             log.info("서명된 PDF 저장 완료: {}", signedPdfPath);
             
             return signedFileName;
+        }
+    }
+    
+    /**
+     * 템플릿 PDF를 참여자용 PDF로 복사
+     */
+    public void copyTemplateForParticipant(String sourcePdfId, String targetPdfId) {
+        try {
+            // 소스 PDF 경로 (pdfs 폴더에서 읽기)
+            Path sourcePath = Paths.get(".", "uploads", "pdfs", sourcePdfId);
+            
+            // 대상 PDF 경로 (participants 폴더에 저장)
+            Path targetDir = Paths.get(uploadPath, "participants");
+            Path targetPath = targetDir.resolve(targetPdfId);
+            
+            // 디렉토리 존재 확인
+            if (!Files.exists(sourcePath)) {
+                throw new RuntimeException("템플릿 PDF 파일을 찾을 수 없습니다: " + sourcePath);
+            }
+            
+            if (!Files.exists(targetDir)) {
+                Files.createDirectories(targetDir);
+            }
+            
+            // 파일 복사
+            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            log.info("PDF copied successfully from {} to {}", sourcePdfId, targetPdfId);
+            
+        } catch (IOException e) {
+            log.error("Error copying PDF file from {} to {}", sourcePdfId, targetPdfId, e);
+            throw new RuntimeException("PDF 파일 복사 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * PDF 파일 삭제
+     */
+    public void deletePdf(String pdfId, String type) {
+        try {
+            Path pdfPath = Paths.get(uploadPath, type, pdfId);
+            Files.deleteIfExists(pdfPath);
+            log.info("PDF deleted successfully: {}", pdfId);
+        } catch (IOException e) {
+            log.error("Error deleting PDF: {}", pdfId, e);
+            throw new RuntimeException("PDF 파일 삭제 중 오류가 발생했습니다.", e);
         }
     }
 } 

@@ -5,51 +5,63 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Getter @Setter
 @NoArgsConstructor
-public class Contract extends BaseTimeEntity {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+public class Contract {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    private String title;                    // 계약서 제목
-    private String contracteeName;           // 피계약자 이름
-    private String contracteeEmail;          // 피계약자 이메일
-    private String contracteePhoneNumber;    // 피계약자 연락처
-    private String contractType;             // 계약 종류
     
-    private String contractorName;           // 계약자 이름
-    private String contractorEmail;          // 계약자 이메일
-    private String contractorPhoneNumber;    // 계약자 연락처
+    private String title;                   // 계약 제목
     
-    @Column(columnDefinition = "TEXT")
-    private String description;              // 계약 설명/비고
+    // private ContractStatus status;       // 계약 상태 (추후 코드로 관리)
+    private Integer progressRate;           // 계약 진행률 (%)
+    // private String contractType;         // 계약 구분 (추후 코드로 관리)
     
-    @Column(columnDefinition = "TEXT")
-    private String pdfUrl;                   // PDF 파일 경로
+    private LocalDateTime createdAt;        // 계약 작성일
+    private LocalDateTime startDate;        // 계약 시작일
+    private LocalDateTime expiryDate;       // 계약 만료일
+    private LocalDateTime completedAt;      // 계약 완료일
+    private LocalDateTime lastModifiedAt;   // 최종 수정일
     
-    @Column(columnDefinition = "TEXT")
-    private String signedPdfUrl;             // 서명된 PDF 경로
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "template_id")
+    private ContractTemplate template;      // 연결된 계약서 템플릿
     
-    private LocalDateTime expirationDate;    // 계약 만료일
-    private LocalDateTime signedDate;        // 서명 완료일
+    private String contractPdfId;           // 실제 계약서 PDF ID
     
-    @Enumerated(EnumType.STRING)
-    private ContractStatus status = ContractStatus.PENDING;
-
-    private String originalFileName;         // 원본 파일명
-    private Long fileSize;                   // 파일 크기
+    @OneToMany(mappedBy = "contract", cascade = CascadeType.ALL)
+    private List<ContractParticipant> participants = new ArrayList<>();  // 서명 참여자 목록
     
-    @Column(columnDefinition = "TEXT")
-    private String signaturePosition;        // 서명 위치 정보 (JSON 형식으로 저장: x, y, page)
+    private String createdBy;               // 계약 작성자 (담당자)
+    private String description;             // 계약 설명/비고
+    private String cancelReason;            // 계약 취소/거절 사유
+    private boolean active;  // isActive -> active로 변경
     
-    @Column(name = "email_sent")
-    private boolean emailSent = false;
+    // 계약 관련 추가 필드들
+    private LocalDateTime deadlineDate;     // 서명 마감 기한
+    private String contractNumber;          // 계약 번호 (관리용)
+    private String department;              // 담당 부서
     
-    private LocalDateTime emailSentDate;
+    // 편의 메서드
+    public void addParticipant(ContractParticipant participant) {
+        this.participants.add(participant);
+        participant.setContract(this);
+    }
     
-    private String contractNumber;          // 계약 번호 (자동생성)
-    @Column(name = "deleted")
-    private boolean deleted = false;
+    // 진행률 계산 메서드
+    public void calculateProgressRate() {
+        if (participants.isEmpty()) {
+            this.progressRate = 0;
+            return;
+        }
+        long signedCount = participants.stream()
+            .filter(ContractParticipant::isSigned)
+            .count();
+        this.progressRate = (int) ((signedCount * 100) / participants.size());
+    }
 } 

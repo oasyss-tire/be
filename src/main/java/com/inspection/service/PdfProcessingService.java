@@ -18,6 +18,9 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import java.util.Base64;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import java.io.InputStream;
+import java.util.ArrayList;
+import org.apache.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState;
+import org.apache.pdfbox.pdmodel.graphics.state.RenderingMode;
 
 @Slf4j
 @Service
@@ -131,32 +134,60 @@ public class PdfProcessingService {
     private void addSignatureContent(PDPageContentStream contentStream, PDDocument document, 
             float x, float y, float width, float height, byte[] imageData) throws IOException {
         PDImageXObject image = PDImageXObject.createFromByteArray(document, imageData, "signature");
-        contentStream.drawImage(image, x, PDF_HEIGHT - y - height, width, height);
+        
+        // 이미지 렌더링 상태 설정
+        contentStream.saveGraphicsState();
+        // 투명도 설정 (1.0f = 완전 불투명)
+        contentStream.setGraphicsStateParameters(new PDExtendedGraphicsState());
+        contentStream.setRenderingMode(RenderingMode.FILL);
+        
+        // 이미지 크기 조정 (약간 크게)
+        float scale = 1.2f;  // 20% 크게
+        float scaledWidth = width * scale;
+        float scaledHeight = height * scale;
+        // 중앙 정렬을 위한 오프셋 계산
+        float xOffset = (width - scaledWidth) / 2;
+        float yOffset = (height - scaledHeight) / 2;
+        
+        contentStream.drawImage(image, 
+            x + xOffset, 
+            PDF_HEIGHT - y - height + yOffset, 
+            scaledWidth, 
+            scaledHeight);
+        
+        contentStream.restoreGraphicsState();
     }
     
     private void addCheckmarkContent(PDPageContentStream contentStream, float x, float y, float width, float height) throws IOException {
-        contentStream.setLineWidth(2f);
-        contentStream.setStrokingColor(0, 0, 0);
+        contentStream.beginText();
+        contentStream.setFont(PDType1Font.ZAPF_DINGBATS, 12);
+        contentStream.setNonStrokingColor(0, 0, 0);
         
-        float margin = 4f;
-        contentStream.moveTo(x + margin, PDF_HEIGHT - y - margin);
-        contentStream.lineTo(x + width - margin, PDF_HEIGHT - y - height + margin);
-        contentStream.stroke();
+        float fontSize = Math.min(width, height) * 0.8f;
+        contentStream.setFont(PDType1Font.ZAPF_DINGBATS, fontSize);
         
-        contentStream.moveTo(x + width - margin, PDF_HEIGHT - y - margin);
-        contentStream.lineTo(x + margin, PDF_HEIGHT - y - height + margin);
-        contentStream.stroke();
+        contentStream.newLineAtOffset(
+            x + (width - fontSize) / 2,
+            PDF_HEIGHT - y - height + (height - fontSize) / 2
+        );
+        contentStream.showText("✓");
+        contentStream.endText();
     }
     
     public byte[] addValuesToFields(byte[] pdf, List<ContractPdfField> fields) throws IOException {
         try (PDDocument document = PDDocument.load(pdf)) {
+            // 기존 annotation 제거 (노란색 테두리 제거)
+            for (PDPage page : document.getPages()) {
+                page.setAnnotations(new ArrayList<>());
+            }
+
+            // 값만 추가
             for (ContractPdfField field : fields) {
                 if (field.getValue() == null || field.getValue().isEmpty()) {
-                    continue;  // 값이 없는 필드는 건너뛰기
+                    continue;
                 }
 
                 PDPage page = document.getPage(field.getPage() - 1);
-                
                 float x = PDF_WIDTH * field.getRelativeX().floatValue();
                 float y = PDF_HEIGHT * field.getRelativeY().floatValue();
                 float width = PDF_WIDTH * field.getRelativeWidth().floatValue();

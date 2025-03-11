@@ -14,7 +14,8 @@ import lombok.Setter;
 @Getter @Setter
 @NoArgsConstructor
 public class ContractTemplate {
-    @Id @GeneratedValue
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     
     private String templateName;        // 템플릿 이름
@@ -25,13 +26,11 @@ public class ContractTemplate {
     private boolean isActive;
     
     @OneToMany(mappedBy = "template", cascade = CascadeType.ALL)
-    private List<ContractPdfField> fields;
+    private List<ContractPdfField> fields;  // ContractPdfField의 template 필드와 매핑
     
-    // 편의 메서드
+    // 편의 메서드 수정
     public void addFields(List<ContractPdfField> fields) {
-        fields.forEach(field -> {
-            field.setTemplate(this);
-            this.fields.add(field);
-        });
+        this.fields = fields;
+        fields.forEach(field -> field.setTemplate(this));  // 양방향 관계 설정
     }
 } 

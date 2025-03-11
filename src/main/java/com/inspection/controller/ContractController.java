@@ -1,21 +1,26 @@
 package com.inspection.controller;
 
-import com.inspection.dto.ContractResponse;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.inspection.dto.ContractDTO;
+import com.inspection.dto.CreateContractRequest;
+import com.inspection.dto.ParticipantDetailDTO;
+import com.inspection.entity.Contract;
 import com.inspection.service.ContractService;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.core.io.Resource;
-import java.util.List;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import java.net.MalformedURLException;
-import com.inspection.dto.SignaturePositionRequest;
-import com.inspection.dto.SignatureRequest;
 
 
 @Slf4j
@@ -23,77 +28,88 @@ import com.inspection.dto.SignatureRequest;
 @RequestMapping("/api/contracts")
 @RequiredArgsConstructor
 public class ContractController {
-    
     private final ContractService contractService;
-
+    
+    // 계약 생성
     @PostMapping
-    public ResponseEntity<ContractResponse> uploadContract(
-            @RequestParam("title") String title,
-            @RequestParam("contracteeName") String contracteeName,
-            @RequestParam("contracteeEmail") String contracteeEmail,
-            @RequestParam("contracteePhoneNumber") String contracteePhoneNumber,
-            @RequestParam("contractorName") String contractorName,
-            @RequestParam("contractorEmail") String contractorEmail,
-            @RequestParam("contractorPhoneNumber") String contractorPhoneNumber,
-            @RequestParam("contractType") String contractType,
-            @RequestParam("description") String description,
-            @RequestParam("file") MultipartFile file) {
-        
-        log.info("계약서 업로드 요청 - 제목: {}, 계약자: {}, 피계약자: {}", 
-            title, contractorName, contracteeName);
-        
-        ContractResponse response = contractService.uploadContract(
-            title, contracteeName, contracteeEmail, contracteePhoneNumber,
-            contractorName, contractorEmail, contractorPhoneNumber,
-            contractType, description, file);
-            
-        return ResponseEntity.ok(response);
+    public ResponseEntity<ContractDTO> createContract(@RequestBody CreateContractRequest request) {
+        log.info("Contract creation request received: {}", request.getTitle());
+        try {
+            Contract contract = contractService.createContract(request);
+            return ResponseEntity.ok(new ContractDTO(contract));
+        } catch (Exception e) {
+            log.error("Error creating contract", e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
-
-    // 계약서 목록 조회
-    @GetMapping
-    public ResponseEntity<List<ContractResponse>> getContracts() {
-        return ResponseEntity.ok(contractService.getContracts());
-    }
-
-    // 계약서 상세 조회
+    
+    // 계약 상세 조회
     @GetMapping("/{contractId}")
-    public ResponseEntity<ContractResponse> getContract(@PathVariable Long contractId) {
-        return ResponseEntity.ok(contractService.getContract(contractId));
+    public ResponseEntity<ContractDTO> getContract(@PathVariable Long contractId) {
+        try {
+            Contract contract = contractService.getContract(contractId);
+            return ResponseEntity.ok(new ContractDTO(contract));
+        } catch (Exception e) {
+            log.error("Error fetching contract: {}", contractId, e);
+            return ResponseEntity.notFound().build();
+        }
     }
-
-    // PDF 파일 다운로드
-    @GetMapping("/{contractId}/pdf")
-    public ResponseEntity<Resource> downloadPdf(@PathVariable Long contractId) {
-        return contractService.downloadPdf(contractId);
+    
+    // 계약 목록 조회 (활성화된 계약만)
+    @GetMapping
+    public ResponseEntity<List<ContractDTO>> getContracts() {
+        try {
+            List<Contract> contracts = contractService.getActiveContracts();
+            List<ContractDTO> dtos = contracts.stream()
+                .map(ContractDTO::new)
+                .collect(Collectors.toList());
+            return ResponseEntity.ok(dtos);
+        } catch (Exception e) {
+            log.error("Error fetching contracts", e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
-
-    // 서명된 PDF 파일 다운로드
-    @GetMapping("/{contractId}/signed-pdf")
-    public ResponseEntity<Resource> downloadSignedPdf(@PathVariable Long contractId) {
-        return contractService.downloadSignedPdf(contractId);
-    }
-
-    // 서명 위치 저장
-    @PostMapping("/{contractId}/signature-position")
-    public ResponseEntity<ContractResponse> saveSignaturePosition(
+    
+    // 계약 취소/비활성화
+    @DeleteMapping("/{contractId}")
+    public ResponseEntity<Void> deactivateContract(
         @PathVariable Long contractId,
-        @RequestBody SignaturePositionRequest request) {
-        return ResponseEntity.ok(contractService.saveSignaturePosition(contractId, request));
+        @RequestParam(required = false) String reason
+    ) {
+        try {
+            contractService.deactivateContract(contractId, reason);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            log.error("Error deactivating contract: {}", contractId, e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
-
-    // 서명 이미지 업로드
-    @PostMapping("/{contractId}/signature")
-    public ResponseEntity<ContractResponse> uploadSignature(
+    
+    @GetMapping("/{contractId}/participants/{participantId}")
+    public ResponseEntity<ParticipantDetailDTO> getParticipantDetail(
         @PathVariable Long contractId,
-        @RequestParam("signature") MultipartFile signatureFile) {
-        return ResponseEntity.ok(contractService.uploadSignature(contractId, signatureFile));
+        @PathVariable Long participantId
+    ) {
+        try {
+            ParticipantDetailDTO participant = contractService.getParticipantDetail(contractId, participantId);
+            return ResponseEntity.ok(participant);
+        } catch (Exception e) {
+            log.error("Error fetching participant detail: {}", participantId, e);
+            return ResponseEntity.notFound().build();
+        }
     }
-
-    @PostMapping("/{contractId}/sign")
-    public ResponseEntity<ContractResponse> signContract(
-            @PathVariable Long contractId,
-            @RequestBody SignatureRequest request) {
-        return ResponseEntity.ok(contractService.addSignature(contractId, request));
+    
+    @PostMapping("/{contractId}/participants/{participantId}/sign")
+    public ResponseEntity<Void> completeParticipantSign(
+        @PathVariable Long contractId,
+        @PathVariable Long participantId
+    ) {
+        try {
+            contractService.completeParticipantSign(contractId, participantId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            log.error("Error completing participant sign: {}", participantId, e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
-} 
+}
