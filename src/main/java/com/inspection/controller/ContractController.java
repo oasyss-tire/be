@@ -18,6 +18,8 @@ import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.ParticipantDetailDTO;
 import com.inspection.entity.Contract;
 import com.inspection.service.ContractService;
+import com.inspection.dto.PhoneVerificationRequest;
+import com.inspection.dto.ErrorResponse;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -114,6 +116,35 @@ public class ContractController {
         } catch (Exception e) {
             log.error("Error completing participant sign: {}", participantId, e);
             return ResponseEntity.internalServerError().build();
+        }
+    }
+    
+    @PostMapping("/{contractId}/participants/{participantId}/verify")
+    public ResponseEntity<?> verifyParticipant(
+        @PathVariable Long contractId,
+        @PathVariable Long participantId,
+        @RequestBody PhoneVerificationRequest request
+    ) {
+        try {
+            log.info("Participant verification request received for contractId: {}, participantId: {}", 
+                contractId, participantId);
+                
+            boolean isVerified = contractService.verifyParticipantPhone(
+                contractId, 
+                participantId, 
+                request.getPhoneLastDigits()
+            );
+            
+            if (isVerified) {
+                return ResponseEntity.ok().build();
+            } else {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("휴대폰 번호가 일치하지 않습니다."));
+            }
+        } catch (Exception e) {
+            log.error("Error verifying participant", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("인증 처리 중 오류가 발생했습니다."));
         }
     }
 }

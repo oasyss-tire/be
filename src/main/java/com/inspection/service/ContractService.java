@@ -199,4 +199,18 @@ public class ContractService {
             throw new RuntimeException("필드 정보 복사 중 오류가 발생했습니다.", e);
         }
     }
+
+    public boolean verifyParticipantPhone(Long contractId, Long participantId, String phoneLastDigits) {
+        // 계약 참여자 정보 조회
+        ParticipantDetailDTO participant = getParticipantDetail(contractId, participantId);
+        
+        // 참여자의 전화번호 마지막 4자리와 입력받은 번호 비교
+        if (participant != null && participant.getPhoneNumber() != null) {
+            String participantPhoneLastDigits = participant.getPhoneNumber()
+                .substring(participant.getPhoneNumber().length() - 4);
+            return participantPhoneLastDigits.equals(phoneLastDigits);
+        }
+        
+        return false;
+    }
 } 

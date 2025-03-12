@@ -70,7 +70,8 @@ public class SecurityConfig {
                     "/api/facilities/**",
                     "/api/pdf/**",
                     "/api/contract-pdf/**",
-                    "/api/contract-templates/**"
+                    "/api/contract-templates/**",
+                    "/api/email/**"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/manager/**").hasRole("MANAGER")
