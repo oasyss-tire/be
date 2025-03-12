@@ -109,7 +109,7 @@ public class ContractService {
     
     @Transactional(readOnly = true)
     public List<Contract> getActiveContracts() {
-        return contractRepository.findByActiveTrue();
+        return contractRepository.findByActiveTrueOrderByCreatedAtDesc();
     }
     
     public void deactivateContract(Long contractId, String reason) {

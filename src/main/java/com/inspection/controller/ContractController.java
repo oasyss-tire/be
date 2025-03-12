@@ -21,6 +21,7 @@ import com.inspection.service.ContractService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 
 
 @Slf4j
@@ -59,14 +60,17 @@ public class ContractController {
     @GetMapping
     public ResponseEntity<List<ContractDTO>> getContracts() {
         try {
+            // 최신순(생성일 기준 내림차순)으로 계약 목록 조회
             List<Contract> contracts = contractService.getActiveContracts();
-            List<ContractDTO> dtos = contracts.stream()
+            
+            List<ContractDTO> contractDTOs = contracts.stream()
                 .map(ContractDTO::new)
                 .collect(Collectors.toList());
-            return ResponseEntity.ok(dtos);
+                
+            return ResponseEntity.ok(contractDTOs);
         } catch (Exception e) {
             log.error("Error fetching contracts", e);
-            return ResponseEntity.internalServerError().build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
     

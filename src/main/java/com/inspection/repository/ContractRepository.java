@@ -9,5 +9,5 @@ import com.inspection.entity.Contract;
 
 @Repository
 public interface ContractRepository extends JpaRepository<Contract, Long> {
-    List<Contract> findByActiveTrue();
+    List<Contract> findByActiveTrueOrderByCreatedAtDesc();
 } 
