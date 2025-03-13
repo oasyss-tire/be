@@ -15,11 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.inspection.dto.UserCreateDTO;
 import com.inspection.dto.UserResponseDTO;
 import com.inspection.dto.UserUpdateDTO;
-import com.inspection.entity.Company;
 import com.inspection.entity.User;
-import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
+import com.inspection.util.PasswordValidator;
 
 import lombok.RequiredArgsConstructor;
 
@@ -29,24 +28,31 @@ public class UserService implements UserDetailsService {
     
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final CompanyRepository companyRepository;
     private final EncryptionUtil aesEncryption;
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
+    // 사용자 로드
     @Override
-    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        User user = userRepository.findByUsername(username)
-            .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+    public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
+        User user = userRepository.findByUserId(userId)
+            .orElseThrow(() -> new UsernameNotFoundException("User not found with userId: " + userId));
 
         return org.springframework.security.core.userdetails.User.builder()
-            .username(user.getUsername())
+            .username(user.getUserId())
             .password(user.getPassword())
             .roles(user.getRole().name())
             .build();
     }
 
+
+    // 사용자 생성
     @Transactional
     public User createUser(UserCreateDTO userCreateDTO) {
+        // 비밀번호 정책 검증
+        if (!PasswordValidator.isValid(userCreateDTO.getPassword())) {
+            throw new RuntimeException(PasswordValidator.getPasswordPolicy());
+        }
+        
         User user = userCreateDTO.toEntity();
         
         // 비밀번호 암호화
@@ -61,33 +67,31 @@ public class UserService implements UserDetailsService {
         if (user.getPhoneNumber() != null) {
             user.setPhoneNumber(aesEncryption.encrypt(user.getPhoneNumber()));
         }
-        
-        if (userCreateDTO.getCompanyId() != null) {
-            Company company = companyRepository.findById(userCreateDTO.getCompanyId())
-                .orElseThrow(() -> new RuntimeException("존재하지 않는 회사입니다."));
-            user.setCompany(company);
-        }
 
-        if (userRepository.existsByUsername(user.getUsername())) {
-            throw new RuntimeException("이미 존재하는 사용자명입니다.");
+        if (userRepository.existsByUserId(user.getUserId())) {
+            throw new RuntimeException("이미 존재하는 사용자 ID입니다.");
         }
 
         return userRepository.save(user);
     }
 
-    public User getCurrentUser(String username) {
-        return userRepository.findByUsername(username)
+    // 사용자 조회
+    public User getCurrentUser(String userId) {
+        return userRepository.findByUserId(userId)
             .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
     }
 
-    public boolean existsByUsername(String username) {
-        return userRepository.existsByUsername(username);
+    // 사용자 존재 여부 확인
+    public boolean existsByUserId(String userId) {
+        return userRepository.existsByUserId(userId);
     }
 
+    // 관리자 코드 검증
     public boolean validateAdminCode(String adminCode) {
         return "ADMIN123".equals(adminCode);
     }
 
+    // 모든 사용자 조회
     @Transactional(readOnly = true)
     public List<UserResponseDTO> getAllUsers() {
         return userRepository.findAll().stream()
@@ -121,16 +125,20 @@ public class UserService implements UserDetailsService {
             .collect(Collectors.toList());
     }
 
-    public User getUserById(Long userId) {
-        return userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다. ID: " + userId));
+
+    // 사용자 조회
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다. ID: " + id));
     }
 
+
+    // 사용자 수정
     @Transactional
-    public User updateUser(Long userId, UserUpdateDTO userUpdateDTO) {
-        User user = getUserById(userId);
+    public User updateUser(Long id, UserUpdateDTO userUpdateDTO) {
+        User user = getUserById(id);
         
-        user.setFullName(userUpdateDTO.getFullName());
+        user.setUserName(userUpdateDTO.getUserName());
         
         // 이메일 암호화
         if (userUpdateDTO.getEmail() != null) {
@@ -145,25 +153,14 @@ public class UserService implements UserDetailsService {
         user.setRole(userUpdateDTO.getRole());
         user.setActive(userUpdateDTO.isActive());
         
-        if (userUpdateDTO.getCompanyId() != null) {
-            Company company = companyRepository.findById(userUpdateDTO.getCompanyId())
-                .orElseThrow(() -> new RuntimeException("존재하지 않는 회사입니다."));
-            user.setCompany(company);
-        }
-        
         return userRepository.save(user);
     }
 
-    @Transactional
-    public void deleteUser(Long userId) {
-        User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다. ID: " + userId));
-        userRepository.delete(user);
-    }
+
 
     // 사용자 정보 조회 시 복호화
-    public UserResponseDTO getCurrentUserDTO(String username) {
-        User user = getCurrentUser(username);
+    public UserResponseDTO getCurrentUserDTO(String userId) {
+        User user = getCurrentUser(userId);
         UserResponseDTO dto = new UserResponseDTO(user);
         
         // 이메일과 전화번호 복호화
@@ -178,18 +175,25 @@ public class UserService implements UserDetailsService {
     }
 
 
+    
+    // 비밀번호 변경
     @Transactional
-    public void updatePassword(Long userId, String currentPassword, String newPassword) {
-        log.info("비밀번호 변경 시도 - userId: {}", userId);
+    public void updatePassword(Long id, String currentPassword, String newPassword) {
+        log.info("비밀번호 변경 시도 - id: {}", id);
         
-        User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다. ID: " + userId));
+        // 비밀번호 정책 검증
+        if (!PasswordValidator.isValid(newPassword)) {
+            throw new RuntimeException(PasswordValidator.getPasswordPolicy());
+        }
         
-        log.info("사용자 조회 성공 - username: {}", user.getUsername());
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다. ID: " + id));
+        
+        log.info("사용자 조회 성공 - userId: {}", user.getUserId());
 
         // 현재 비밀번호 검증
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-            log.error("현재 비밀번호 불일치 - userId: {}", userId);
+            log.error("현재 비밀번호 불일치 - id: {}", id);
             throw new RuntimeException("현재 비밀번호가 일치하지 않습니다.");
         }
 
@@ -200,8 +204,6 @@ public class UserService implements UserDetailsService {
         user.setPassword(encodedPassword);
         userRepository.save(user);
         
-        log.info("비밀번호 변경 완료 - userId: {}", userId);
+        log.info("비밀번호 변경 완료 - id: {}", id);
     }
-
-
 } 

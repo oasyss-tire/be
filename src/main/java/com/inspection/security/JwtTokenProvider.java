@@ -3,6 +3,7 @@ package com.inspection.security;
 import com.inspection.config.JwtConfig;
 import com.inspection.entity.User;
 import com.inspection.repository.UserRepository;
+import com.inspection.service.TokenService;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
@@ -25,14 +26,15 @@ public class JwtTokenProvider {
     private static final Logger logger = LoggerFactory.getLogger(JwtTokenProvider.class);
     private final JwtConfig jwtConfig;
     private final UserRepository userRepository;
+    private final TokenService tokenService;
 
     public String generateToken(Authentication authentication) {
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-        User user = userRepository.findByUsername(userDetails.getUsername())
+        User user = userRepository.findByUserId(userDetails.getUsername())
             .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
 
         Claims claims = Jwts.claims().setSubject(userDetails.getUsername());
-        claims.put("userId", user.getUserId());
+        claims.put("userId", user.getId());
         claims.put("roles", userDetails.getAuthorities().stream()
             .map(GrantedAuthority::getAuthority)
             .collect(Collectors.toList()));
@@ -61,6 +63,12 @@ public class JwtTokenProvider {
 
     public boolean validateToken(String token) {
         try {
+            // 무효화된 토큰인지 확인
+            if (tokenService.isTokenInvalidated(token)) {
+                logger.error("무효화된 토큰입니다.");
+                return false;
+            }
+            
             Jwts.parserBuilder()
                     .setSigningKey(Keys.hmacShaKeyFor(jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8)))
                     .build()
@@ -81,5 +89,27 @@ public class JwtTokenProvider {
             .getBody();
         
         return ((Integer) claims.get("userId")).longValue();
+    }
+    
+    /**
+     * 토큰을 무효화합니다.
+     * 
+     * @param token 무효화할 토큰
+     */
+    public void invalidateToken(String token) {
+        try {
+            // 토큰이 유효한지 먼저 확인
+            Jwts.parserBuilder()
+                .setSigningKey(Keys.hmacShaKeyFor(jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8)))
+                .build()
+                .parseClaimsJws(token);
+            
+            // 유효한 토큰이면 무효화 처리
+            tokenService.invalidateToken(token);
+            logger.info("토큰이 무효화되었습니다.");
+        } catch (Exception e) {
+            logger.error("토큰 무효화 실패: {}", e.getMessage());
+            throw new RuntimeException("토큰 무효화에 실패했습니다.");
+        }
     }
 } 

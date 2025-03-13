@@ -19,5 +19,4 @@ public class InquiryDTO {
     private boolean processed;
     private String processContent;
     private String memo;
-    private String companyName;
 } 

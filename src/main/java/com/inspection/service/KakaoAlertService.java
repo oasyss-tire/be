@@ -217,7 +217,7 @@ public class KakaoAlertService {
         
         // userId로 사용자 정보 조회
         userRepository.findById(alert.getUserId())
-            .ifPresent(user -> dto.setUsername(user.getUsername()));
+            .ifPresent(user -> dto.setUsername(user.getUserId()));
             
         dto.setReceiverPhone(alert.getReceiverPhone());
         dto.setMessage(alert.getMessage());

@@ -171,8 +171,8 @@ public class InquiryService {
 
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String username = authentication.getName();
-        return userRepository.findByUsername(username)
+        String userId = authentication.getName();
+        return userRepository.findByUserId(userId)
             .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
     }
 
@@ -234,7 +234,7 @@ public class InquiryService {
 
     @Transactional(readOnly = true)
     public List<InquiryDTO> getAllInquiries() {
-        return inquiryRepository.findAllWithWriterAndCompany().stream()
+        return inquiryRepository.findAllWithWriter().stream()
             .map(this::convertToDTO)
             .collect(Collectors.toList());
     }
@@ -253,13 +253,12 @@ public class InquiryService {
         dto.setInquiryContent(inquiry.getInquiryContent());
         dto.setCreatedAt(inquiry.getCreatedAt());
         dto.setImageUrls(inquiry.getImageUrls());
-        dto.setWriterName(inquiry.getWriter().getFullName());
-        dto.setWriterId(inquiry.getWriter().getUserId());
+        dto.setWriterName(inquiry.getWriter().getUserName());
+        dto.setWriterId(inquiry.getWriter().getId());
         dto.setContactNumber(inquiry.getContactNumber());
         dto.setProcessed(inquiry.isProcessed());
         dto.setProcessContent(inquiry.getProcessContent());
         dto.setMemo(inquiry.getMemo());
-        dto.setCompanyName(inquiry.getWriter().getCompany().getCompanyName());
         return dto;
     }
 

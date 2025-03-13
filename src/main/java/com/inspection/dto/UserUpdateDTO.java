@@ -6,10 +6,9 @@ import lombok.Setter;
 
 @Getter @Setter
 public class UserUpdateDTO {
-    private String fullName;
-    private String email;
-    private String phoneNumber;
-    private Role role;
-    private Long companyId;
-    private boolean active;
+    private String userName;    // 사용자 이름
+    private String email;       // 이메일
+    private String phoneNumber; // 전화번호
+    private Role role;         // 권한
+    private boolean active;     // 활성화 여부
 } 

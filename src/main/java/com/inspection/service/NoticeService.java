@@ -179,7 +179,7 @@ public class NoticeService {
     }
 
     private void validateWriter(Notice notice, Long userId) {
-        if (!notice.getWriter().getUserId().equals(userId)) {
+        if (!notice.getWriter().getId().equals(userId)) {
             throw new RuntimeException("공지사항 작성자만 수정/삭제할 수 있습니다.");
         }
     }
@@ -189,8 +189,8 @@ public class NoticeService {
         dto.setNoticeId(notice.getNoticeId());
         dto.setTitle(notice.getTitle());
         dto.setContent(notice.getContent());
-        dto.setWriterName(notice.getWriter().getFullName());
-        dto.setWriterId(notice.getWriter().getUserId());
+        dto.setWriterName(notice.getWriter().getUserName());
+        dto.setWriterId(notice.getWriter().getId());
         dto.setCreatedAt(notice.getCreatedAt());
         dto.setPopup(notice.isPopup());
         dto.setPopupStartDate(notice.getPopupStartDate());
@@ -205,10 +205,10 @@ public class NoticeService {
             throw new RuntimeException("인증 정보를 찾을 수 없습니다.");
         }
         
-        String username = authentication.getName();
-        User user = userRepository.findByUsername(username)
+        String userId = authentication.getName();
+        User user = userRepository.findByUserId(userId)
             .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
         
-        return user.getUserId();
+        return user.getId();
     }
 } 

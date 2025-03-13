@@ -6,6 +6,6 @@ import java.util.List;
 import com.inspection.entity.Inquiry;
 
 public interface InquiryRepository extends JpaRepository<Inquiry, Long> {
-    @Query("SELECT i FROM Inquiry i JOIN FETCH i.writer w JOIN FETCH w.company ORDER BY i.createdAt DESC")
-    List<Inquiry> findAllWithWriterAndCompany();
+    @Query("SELECT i FROM Inquiry i JOIN FETCH i.writer w ORDER BY i.createdAt DESC")
+    List<Inquiry> findAllWithWriter();
 } 

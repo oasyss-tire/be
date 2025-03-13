@@ -7,19 +7,18 @@ import lombok.Setter;
 
 @Getter @Setter
 public class UserCreateDTO {
-    private String username;
-    private String password;
-    private String fullName;
-    private Long companyId;
-    private Role role = Role.MANAGER;
-    private String phoneNumber;
-    private String email;
+    private String userId;      // 로그인 아이디
+    private String password;    // 비밀번호
+    private String userName;    // 사용자 이름
+    private Role role = Role.MANAGER;  // 권한
+    private String phoneNumber; // 전화번호
+    private String email;       // 이메일
 
     public User toEntity() {
         User user = new User();
-        user.setUsername(username);
+        user.setUserId(userId);
         user.setPassword(password);
-        user.setFullName(fullName);
+        user.setUserName(userName);
         user.setRole(role);
         user.setPhoneNumber(phoneNumber);
         user.setEmail(email);
