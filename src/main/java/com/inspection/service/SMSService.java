@@ -14,28 +14,35 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class SMSService {
     
-    private static final String ADMIN_PHONE = "01093574445";
-    
     @Value("${eon.sender-phone}")
     private String senderPhone;
 
     @Value("${eon.license-key}")
     private String licenseKey;
 
-    public String sendSMS(String name, String phone, String content) {
+    public String sendSMS(String name, String phone, String content, String link) {
         try {
             Hashtable<String, String> param = new Hashtable<>();
             
             param.put("STYPE", "1");
             param.put("RESERVETIME", "");
             param.put("SENDPHONE", senderPhone);
-            param.put("DESTPHONE", ADMIN_PHONE);
+            param.put("DESTPHONE", phone);
+            
+            String domainUrl = String.format("localhost:3001/contract-sign/%s", link);
             
             String message = String.format(
-                "[새로운 문의]\n이름: %s\n연락처: %s\n내용: %s",
-                name, phone, content
+                "[Web발신]\n" +
+                "[타이어 뱅크]\n" +
+                "안녕하세요, %s님\n" +
+                "계약서 서명이 요청되었습니다.\n\n" +
+                "본 링크는 24시간 동안 유효합니다.\n" +
+                "문의사항: 1599-7181\n\n" +
+                "▣ 계약서 서명하기: http://%s",
+                name,
+                domainUrl
             );
-            param.put("MSG", new String(message.getBytes("KSC5601"), "8859_1"));  // 한글 인코딩 수정
+            param.put("MSG", new String(message.getBytes("KSC5601"), "8859_1"));
 
             String response = sendEonRequest(
                 "http://blue3.eonmail.co.kr:8081/weom/servlet/api.EONASP6", 

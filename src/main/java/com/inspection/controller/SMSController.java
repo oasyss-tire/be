@@ -18,9 +18,10 @@ public class SMSController {
     public ResponseEntity<String> sendSMS(
             @RequestParam String name,
             @RequestParam String phone,
-            @RequestParam String content) {
+            @RequestParam String content,
+            @RequestParam String link) {
         try {
-            String response = smsService.sendSMS(name, phone, content);
+            String response = smsService.sendSMS(name, phone, content, link);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("SMS 발송 실패: ", e);
