@@ -16,7 +16,6 @@ public class CreateContractRequest {
     private Long templateId;                // 선택된 템플릿 ID
     private String createdBy;               // 계약 작성자
     private String department;              // 담당 부서
-    private String contractNumber;          // 계약 번호
     private List<CreateParticipantRequest> participants;  // 서명 참여자 목록
 }
 

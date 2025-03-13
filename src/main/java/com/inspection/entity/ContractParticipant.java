@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.time.LocalDateTime;
 import com.inspection.enums.NotificationType;
+import com.inspection.util.EncryptionUtil;
 
 @Entity
 @Getter @Setter
@@ -31,4 +32,15 @@ public class ContractParticipant {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "contract_id")
     private Contract contract;             // 연관된 계약
+    
+    @Transient  // DB에 저장되지 않는 필드
+    private EncryptionUtil encryptionUtil;
+    
+    public String getDecryptedEmail() {
+        return encryptionUtil.decrypt(this.email);
+    }
+    
+    public String getDecryptedPhoneNumber() {
+        return encryptionUtil.decrypt(this.phoneNumber);
+    }
 } 

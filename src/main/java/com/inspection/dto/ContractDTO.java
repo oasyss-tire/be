@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import com.inspection.entity.Contract;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -27,7 +28,7 @@ public class ContractDTO {
     private String templateName;
     private List<ParticipantDTO> participants;
 
-    public ContractDTO(Contract contract) {
+    public ContractDTO(Contract contract, EncryptionUtil encryptionUtil) {
         this.id = contract.getId();
         this.title = contract.getTitle();
         this.progressRate = contract.getProgressRate();
@@ -47,7 +48,7 @@ public class ContractDTO {
         }
         
         this.participants = contract.getParticipants().stream()
-            .map(ParticipantDTO::new)
+            .map(participant -> new ParticipantDTO(participant, encryptionUtil))
             .collect(Collectors.toList());
     }
 } 

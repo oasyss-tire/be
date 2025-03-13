@@ -5,28 +5,33 @@ import lombok.Getter;
 import lombok.Setter;
 import java.time.LocalDateTime;
 import com.inspection.enums.NotificationType;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
-@Getter @Setter
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class ParticipantDetailDTO {
     private Long id;
     private String name;
     private String email;
     private String phoneNumber;
-    private String pdfId;
-    private String signedPdfId;
+    private NotificationType notifyType;
     private boolean signed;
     private LocalDateTime signedAt;
-    private NotificationType notifyType;
+    private String pdfId;
+    private String signedPdfId;
     
     public ParticipantDetailDTO(ContractParticipant participant) {
         this.id = participant.getId();
         this.name = participant.getName();
         this.email = participant.getEmail();
         this.phoneNumber = participant.getPhoneNumber();
-        this.pdfId = participant.getPdfId();
-        this.signedPdfId = participant.getSignedPdfId();
+        this.notifyType = participant.getNotifyType();
         this.signed = participant.isSigned();
         this.signedAt = participant.getSignedAt();
-        this.notifyType = participant.getNotifyType();
+        this.pdfId = participant.getPdfId();
+        this.signedPdfId = participant.getSignedPdfId();
     }
 } 

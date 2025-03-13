@@ -20,6 +20,7 @@ import com.inspection.entity.Contract;
 import com.inspection.service.ContractService;
 import com.inspection.dto.PhoneVerificationRequest;
 import com.inspection.dto.ErrorResponse;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public class ContractController {
     private final ContractService contractService;
+    private final EncryptionUtil encryptionUtil;
     
     // 계약 생성
     @PostMapping
@@ -39,7 +41,7 @@ public class ContractController {
         log.info("Contract creation request received: {}", request.getTitle());
         try {
             Contract contract = contractService.createContract(request);
-            return ResponseEntity.ok(new ContractDTO(contract));
+            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
         } catch (Exception e) {
             log.error("Error creating contract", e);
             return ResponseEntity.internalServerError().build();
@@ -51,7 +53,7 @@ public class ContractController {
     public ResponseEntity<ContractDTO> getContract(@PathVariable Long contractId) {
         try {
             Contract contract = contractService.getContract(contractId);
-            return ResponseEntity.ok(new ContractDTO(contract));
+            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
         } catch (Exception e) {
             log.error("Error fetching contract: {}", contractId, e);
             return ResponseEntity.notFound().build();
@@ -66,7 +68,7 @@ public class ContractController {
             List<Contract> contracts = contractService.getActiveContracts();
             
             List<ContractDTO> contractDTOs = contracts.stream()
-                .map(ContractDTO::new)
+                .map(contract -> new ContractDTO(contract, encryptionUtil))
                 .collect(Collectors.toList());
                 
             return ResponseEntity.ok(contractDTOs);

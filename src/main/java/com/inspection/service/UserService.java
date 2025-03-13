@@ -19,7 +19,7 @@ import com.inspection.entity.Company;
 import com.inspection.entity.User;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
-import com.inspection.util.AESEncryption;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 
@@ -30,7 +30,7 @@ public class UserService implements UserDetailsService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final CompanyRepository companyRepository;
-    private final AESEncryption aesEncryption;
+    private final EncryptionUtil aesEncryption;
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     @Override

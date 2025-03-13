@@ -1,25 +1,27 @@
 package com.inspection.service;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.CreateParticipantRequest;
 import com.inspection.dto.ParticipantDetailDTO;
 import com.inspection.entity.Contract;
 import com.inspection.entity.ContractParticipant;
-import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractPdfField;
-import com.inspection.repository.ContractRepository;
-import com.inspection.repository.ContractTemplateRepository;
+import com.inspection.entity.ContractTemplate;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
+import com.inspection.repository.ContractRepository;
+import com.inspection.repository.ContractTemplateRepository;
+import com.inspection.util.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import java.time.format.DateTimeFormatter;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -31,6 +33,7 @@ public class ContractService {
     private final ContractParticipantRepository participantRepository;
     private final ContractPdfFieldRepository contractPdfFieldRepository;
     private final PdfService pdfService;
+    private final EncryptionUtil encryptionUtil;
     
     public Contract createContract(CreateContractRequest request) {
         log.info("Creating new contract: {}", request.getTitle());
@@ -49,13 +52,38 @@ public class ContractService {
         contract.setTemplate(template);
         contract.setCreatedBy(request.getCreatedBy());
         contract.setDepartment(request.getDepartment());
-        contract.setContractNumber(request.getContractNumber());
         contract.setContractPdfId(template.getProcessedPdfId());
         
         // 3. 기본값 설정
-        contract.setCreatedAt(LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        contract.setCreatedAt(now);
         contract.setActive(true);
         contract.setProgressRate(0);
+        
+        // 계약번호 생성 및 설정
+        String prefix = String.format("CT-%d-%02d%02d-", 
+            now.getYear(), 
+            now.getMonthValue(), 
+            now.getDayOfMonth()
+        );
+        
+        // 오늘 날짜의 계약번호들 조회
+        List<String> todayNumbers = contractRepository.findContractNumbersByPrefix(prefix);
+        
+        // 다음 시퀀스 번호 찾기
+        int sequence = 1;
+        if (!todayNumbers.isEmpty()) {
+            String lastNumber = todayNumbers.get(0); // 가장 최근 번호
+            sequence = Integer.parseInt(lastNumber.substring(lastNumber.length() - 3)) + 1;
+        }
+        
+        // 번호 범위 체크 (001-999)
+        if (sequence > 999) {
+            throw new RuntimeException("일일 최대 계약 생성 수(999)를 초과했습니다.");
+        }
+        
+        // 계약번호 설정
+        contract.setContractNumber(prefix + String.format("%03d", sequence));
         
         // 4. 참여자 정보 설정
         List<ContractParticipant> participants = request.getParticipants().stream()
@@ -96,11 +124,14 @@ public class ContractService {
         
         // 5. 저장
         Contract savedContract = contractRepository.save(contract);
-        log.info("Contract created successfully: {}", savedContract.getId());
+        log.info("Contract created successfully: {}, contractNumber: {}", 
+            savedContract.getId(), savedContract.getContractNumber());
         
         return savedContract;
     }
     
+
+    // 계약 조회
     @Transactional(readOnly = true)
     public Contract getContract(Long contractId) {
         return contractRepository.findById(contractId)
@@ -112,6 +143,7 @@ public class ContractService {
         return contractRepository.findByActiveTrueOrderByCreatedAtDesc();
     }
     
+
     public void deactivateContract(Long contractId, String reason) {
         Contract contract = getContract(contractId);
         contract.setActive(false);
@@ -124,8 +156,8 @@ public class ContractService {
     private ContractParticipant createParticipant(CreateParticipantRequest request, Contract contract) {
         ContractParticipant participant = new ContractParticipant();
         participant.setName(request.getName());
-        participant.setEmail(request.getEmail());
-        participant.setPhoneNumber(request.getPhoneNumber());
+        participant.setEmail(encryptionUtil.encrypt(request.getEmail()));
+        participant.setPhoneNumber(encryptionUtil.encrypt(request.getPhoneNumber()));
         participant.setNotifyType(request.getNotifyType());
         participant.setSigned(false);
         return participant;
@@ -142,7 +174,18 @@ public class ContractService {
         ContractParticipant participant = participantRepository.findByContractIdAndId(contractId, participantId)
             .orElseThrow(() -> new RuntimeException("Participant not found"));
             
-        return new ParticipantDetailDTO(participant);
+        // DTO 생성 시 복호화된 값 전달
+        return new ParticipantDetailDTO(
+            participant.getId(),
+            participant.getName(),
+            encryptionUtil.decrypt(participant.getEmail()),        // 이메일 복호화
+            encryptionUtil.decrypt(participant.getPhoneNumber()),  // 전화번호 복호화
+            participant.getNotifyType(),
+            participant.isSigned(),
+            participant.getSignedAt(),
+            participant.getPdfId(),
+            participant.getSignedPdfId()
+        );
     }
     
     public void completeParticipantSign(Long contractId, Long participantId) {
@@ -201,13 +244,13 @@ public class ContractService {
     }
 
     public boolean verifyParticipantPhone(Long contractId, Long participantId, String phoneLastDigits) {
-        // 계약 참여자 정보 조회
-        ParticipantDetailDTO participant = getParticipantDetail(contractId, participantId);
+        ContractParticipant participant = participantRepository.findByContractIdAndId(contractId, participantId)
+            .orElseThrow(() -> new RuntimeException("Participant not found"));
         
-        // 참여자의 전화번호 마지막 4자리와 입력받은 번호 비교
+        // 암호화된 전화번호를 복호화한 후 마지막 4자리와 비교
         if (participant != null && participant.getPhoneNumber() != null) {
-            String participantPhoneLastDigits = participant.getPhoneNumber()
-                .substring(participant.getPhoneNumber().length() - 4);
+            String decryptedPhone = encryptionUtil.decrypt(participant.getPhoneNumber());
+            String participantPhoneLastDigits = decryptedPhone.substring(decryptedPhone.length() - 4);
             return participantPhoneLastDigits.equals(phoneLastDigits);
         }
         

@@ -16,7 +16,7 @@ import com.inspection.entity.Company;
 import com.inspection.entity.CompanyStatus;
 import com.inspection.entity.Employee;
 import com.inspection.repository.CompanyRepository;
-import com.inspection.util.AESEncryption;
+import com.inspection.util.EncryptionUtil;
 import com.inspection.util.FileUploadUtil;
 
 import lombok.RequiredArgsConstructor;
@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class CompanyService {
     private final CompanyRepository companyRepository;
-    private final AESEncryption aesEncryption;
+    private final EncryptionUtil aesEncryption;
     private final FileUploadUtil fileUploadUtil;
     
 
