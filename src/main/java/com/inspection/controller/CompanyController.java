@@ -1,17 +1,25 @@
 package com.inspection.controller;
 
-import java.net.URLEncoder;
+import java.io.IOException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,207 +28,258 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inspection.dto.CompanyDTO;
-import com.inspection.dto.EmployeeDTO;
-import com.inspection.entity.Company;
-import com.inspection.entity.Employee;
+import com.inspection.dto.CreateCompanyRequest;
 import com.inspection.service.CompanyService;
-import com.inspection.util.FileUploadUtil;
+import com.inspection.service.CompanyImageStorageService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 @RestController
 @RequestMapping("/api/companies")
 @RequiredArgsConstructor
 @Slf4j
 public class CompanyController {
+    
     private final CompanyService companyService;
-    private final ObjectMapper objectMapper;
-    private final FileUploadUtil fileUploadUtil;
-
-
-    @GetMapping
-    public ResponseEntity<List<CompanyDTO>> getAllCompanies() {
-        return ResponseEntity.ok(companyService.getAllCompanies());
+    private final CompanyImageStorageService companyImageStorageService;
+    
+    // 회사 생성 API (JSON 방식)
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<CompanyDTO> createCompany(@RequestBody CreateCompanyRequest request) {
+        log.info("회사 생성 요청: {}", request.getStoreName());
+        
+        // 현재 인증된 사용자 정보 가져오기
+        String userId = getCurrentUserId();
+        if (StringUtils.hasText(userId)) {
+            request.setCreatedBy(userId);
+        }
+        
+        CompanyDTO createdCompany = companyService.createCompany(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
+    }
+    
+    // 회사 생성 API (이미지 포함)
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<CompanyDTO> createCompanyWithImages(
+            @RequestPart("company") CreateCompanyRequest request,
+            @RequestPart(value = "frontImage", required = false) MultipartFile frontImage,
+            @RequestPart(value = "backImage", required = false) MultipartFile backImage,
+            @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
+            @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
+            @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
+        
+        log.info("회사 생성 요청 (이미지 포함): {}", request.getStoreName());
+        
+        // 현재 인증된 사용자 정보 가져오기
+        String userId = getCurrentUserId();
+        if (StringUtils.hasText(userId)) {
+            request.setCreatedBy(userId);
+        }
+        
+        // 1. 회사 생성
+        CompanyDTO createdCompany = companyService.createCompany(request);
+        
+        // 2. 이미지가 하나라도 있으면 이미지 업로드
+        if (frontImage != null || backImage != null || leftSideImage != null || 
+            rightSideImage != null || fullImage != null) {
+            
+            createdCompany = companyService.uploadCompanyImages(
+                createdCompany.getId(), frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+        }
+        
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
+    }
+    
+    /**
+     * 현재 인증된 사용자의 ID를 가져옵니다.
+     * JWT 토큰에서 사용자 정보를 추출합니다.
+     * 
+     * @return 현재 인증된 사용자 ID
+     */
+    private String getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()) {
+            return authentication.getName(); // JWT에서 추출된 사용자 ID (일반적으로 username 또는 sub 클레임)
+        }
+        return null;
+    }
+    
+    // 회사 이미지 업로드 API
+    @PostMapping(value = "/{companyId}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<CompanyDTO> uploadCompanyImages(
+            @PathVariable Long companyId,
+            @RequestPart(value = "frontImage", required = false) MultipartFile frontImage,
+            @RequestPart(value = "backImage", required = false) MultipartFile backImage,
+            @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
+            @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
+            @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
+        
+        log.info("회사 이미지 업로드 요청: 회사 ID {}", companyId);
+        CompanyDTO updatedCompany = companyService.uploadCompanyImages(
+                companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+        return ResponseEntity.ok(updatedCompany);
+    }
+    
+    // 회사 이미지 수정 API
+    @PutMapping(value = "/{companyId}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<CompanyDTO> updateCompanyImages(
+            @PathVariable Long companyId,
+            @RequestPart(value = "frontImage", required = false) MultipartFile frontImage,
+            @RequestPart(value = "backImage", required = false) MultipartFile backImage,
+            @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
+            @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
+            @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
+        
+        log.info("회사 이미지 수정 요청: 회사 ID {}", companyId);
+        CompanyDTO updatedCompany = companyService.updateCompanyImages(
+                companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+        return ResponseEntity.ok(updatedCompany);
+    }
+    
+    // 특정 이미지 삭제 API
+    @DeleteMapping("/{companyId}/images/{imageType}")
+    public ResponseEntity<CompanyDTO> deleteCompanyImage(
+            @PathVariable Long companyId,
+            @PathVariable String imageType) {
+        
+        log.info("회사 이미지 삭제 요청: 회사 ID {}, 이미지 타입 {}", companyId, imageType);
+        CompanyDTO updatedCompany = companyService.deleteCompanyImage(companyId, imageType);
+        return ResponseEntity.ok(updatedCompany);
     }
 
+    // 모든 회사 목록 조회 API
+    @GetMapping
+    public ResponseEntity<List<CompanyDTO>> getAllCompanies(
+            @RequestParam(value = "active", required = false) Boolean active) {
+        
+        List<CompanyDTO> companies;
+        if (active != null && active) {
+            log.info("활성화된 회사 목록 조회 요청");
+            companies = companyService.getActiveCompanies();
+        } else {
+            log.info("모든 회사 목록 조회 요청");
+            companies = companyService.getAllCompanies();
+        }
+        
+        return ResponseEntity.ok(companies);
+    }
+    
+
+    // 회사 ID로 회사 정보 조회 API
     @GetMapping("/{companyId}")
     public ResponseEntity<CompanyDTO> getCompanyById(@PathVariable Long companyId) {
-        CompanyDTO companyDTO = companyService.getCompanyDTOById(companyId);
-        return ResponseEntity.ok(companyDTO);
+        log.info("회사 정보 조회 요청: 회사 ID {}", companyId);
+        CompanyDTO company = companyService.getCompanyById(companyId);
+        return ResponseEntity.ok(company);
     }
+    
 
-    @PostMapping
-    public ResponseEntity<CompanyDTO> createCompany(
-            @RequestParam("company") String companyDtoString,
-            @RequestParam(value = "businessLicenseImage", required = false) MultipartFile businessLicenseImage,
-            @RequestParam(value = "exteriorImage", required = false) MultipartFile exteriorImage,
-            @RequestParam(value = "entranceImage", required = false) MultipartFile entranceImage,
-            @RequestParam(value = "mainPanelImage", required = false) MultipartFile mainPanelImage,
-            @RequestParam(value = "etcImage1", required = false) MultipartFile etcImage1,
-            @RequestParam(value = "etcImage2", required = false) MultipartFile etcImage2,
-            @RequestParam(value = "etcImage3", required = false) MultipartFile etcImage3,
-            @RequestParam(value = "etcImage4", required = false) MultipartFile etcImage4) {
-        try {
-            CompanyDTO companyDTO = objectMapper.readValue(companyDtoString, CompanyDTO.class);
-            
-            // 회사와 직원 정보를 한 번에 저장
-            CompanyDTO savedCompany = companyService.createCompany(companyDTO, 
-                businessLicenseImage, exteriorImage, entranceImage, mainPanelImage,
-                etcImage1, etcImage2, etcImage3, etcImage4);
-
-            return ResponseEntity.ok(savedCompany);
-        } catch (Exception e) {
-            log.error("회사 생성 실패: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    @PutMapping("/{companyId}")
+    // 회사 정보 수정 API (JSON 방식)
+    @PutMapping(value = "/{companyId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CompanyDTO> updateCompany(
             @PathVariable Long companyId,
-            @RequestParam("company") String companyDtoString,
-            @RequestParam(value = "businessLicenseImage", required = false) MultipartFile businessLicenseImage,
-            @RequestParam(value = "exteriorImage", required = false) MultipartFile exteriorImage,
-            @RequestParam(value = "entranceImage", required = false) MultipartFile entranceImage,
-            @RequestParam(value = "mainPanelImage", required = false) MultipartFile mainPanelImage,
-            @RequestParam(value = "etcImage1", required = false) MultipartFile etcImage1,
-            @RequestParam(value = "etcImage2", required = false) MultipartFile etcImage2,
-            @RequestParam(value = "etcImage3", required = false) MultipartFile etcImage3,
-            @RequestParam(value = "etcImage4", required = false) MultipartFile etcImage4) {
-        try {
-            CompanyDTO companyDTO = objectMapper.readValue(companyDtoString, CompanyDTO.class);
+            @RequestBody CreateCompanyRequest request) {
+        
+        log.info("회사 정보 수정 요청: 회사 ID {}", companyId);
+        CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
+        return ResponseEntity.ok(updatedCompany);
+    }
+    
+    // 회사 정보와 이미지 함께 수정 API
+    @PutMapping(value = "/{companyId}/with-images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<CompanyDTO> updateCompanyWithImages(
+            @PathVariable Long companyId,
+            @RequestPart("company") CreateCompanyRequest request,
+            @RequestPart(value = "frontImage", required = false) MultipartFile frontImage,
+            @RequestPart(value = "backImage", required = false) MultipartFile backImage,
+            @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
+            @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
+            @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
+        
+        log.info("회사 정보 및 이미지 수정 요청: 회사 ID {}", companyId);
+        
+        // 1. 회사 정보 수정
+        CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
+        
+        // 2. 이미지가 하나라도 있으면 이미지 수정
+        if (frontImage != null || backImage != null || leftSideImage != null || 
+            rightSideImage != null || fullImage != null) {
             
-            return ResponseEntity.ok(companyService.updateCompany(companyId, companyDTO,
-                businessLicenseImage, exteriorImage, entranceImage, mainPanelImage,
-                etcImage1, etcImage2, etcImage3, etcImage4));
-        } catch (Exception e) {
-            log.error("회사 수정 실패: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            updatedCompany = companyService.updateCompanyImages(
+                companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
         }
+        
+        return ResponseEntity.ok(updatedCompany);
     }
-
+    
+    // 회사 삭제 API
     @DeleteMapping("/{companyId}")
-    public ResponseEntity<Void> deleteCompany(@PathVariable Long companyId) {
+    public ResponseEntity<Map<String, String>> deleteCompany(@PathVariable Long companyId) {
+        log.info("회사 삭제 요청: 회사 ID {}", companyId);
         companyService.deleteCompany(companyId);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(Map.of("message", "회사가 성공적으로 삭제되었습니다."));
+    }
+    
+
+    // 회사 상태 변경 API
+    @PutMapping("/{companyId}/toggle-status")
+    public ResponseEntity<CompanyDTO> toggleCompanyStatus(@PathVariable Long companyId) {
+        log.info("회사 상태 변경 요청: 회사 ID {}", companyId);
+        CompanyDTO updatedCompany = companyService.toggleCompanyStatus(companyId);
+        return ResponseEntity.ok(updatedCompany);
+    }
+    
+
+    // 매장명으로 회사 검색 API
+    @GetMapping("/search")
+    public ResponseEntity<List<CompanyDTO>> searchCompaniesByName(
+            @RequestParam("name") String storeName) {
+        
+        log.info("회사 검색 요청: 매장명 {}", storeName);
+        List<CompanyDTO> companies = companyService.searchCompaniesByName(storeName);
+        return ResponseEntity.ok(companies);
     }
 
-    @GetMapping("/{companyId}/business-license")
-    public ResponseEntity<?> getBusinessLicenseFile(@PathVariable Long companyId) {
+    // 이미지 파일 조회 API
+    @GetMapping("/images/**")
+    public ResponseEntity<Resource> getImage(HttpServletRequest request) {
         try {
-            Company company = companyService.getCompanyById(companyId);
-            String fileName = company.getBusinessLicenseImage();
+            // 전체 경로에서 /api/companies/images/ 부분을 제외한 나머지를 파일 경로로 사용
+            String requestURL = request.getRequestURL().toString();
+            String contextPath = request.getContextPath();
+            String baseUrl = contextPath + "/api/companies/images/";
             
-            if (fileName == null || fileName.isEmpty()) {
-                return ResponseEntity.notFound().build();
+            // URL에서 실제 파일 경로 추출
+            String filePath = requestURL.substring(requestURL.indexOf(baseUrl) + baseUrl.length());
+            
+            // URL 디코딩 (한글 파일명 처리)
+            filePath = URLDecoder.decode(filePath, StandardCharsets.UTF_8.name());
+            
+            log.info("이미지 파일 요청 경로: {}", filePath);
+            
+            // 이미지 파일을 Resource로 로드
+            Resource resource = companyImageStorageService.loadImageAsResource(filePath);
+            
+            // 파일의 Content-Type 확인
+            String contentType = Files.probeContentType(resource.getFile().toPath());
+            if (contentType == null) {
+                contentType = "application/octet-stream";
             }
-
-            // 파일 경로 생성
-            Path filePath = Paths.get(fileUploadUtil.getUploadDir()).resolve(fileName);
             
-            // 파일이 존재하는지 확인
-            if (!Files.exists(filePath)) {
-                return ResponseEntity.notFound().build();
-            }
-
-            // 파일 타입 확인
-            String contentType = determineContentType(fileName);
-            
-            // 파일 데이터 로드
-            byte[] fileData = Files.readAllBytes(filePath);
-
             return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
-                .header(HttpHeaders.CONTENT_DISPOSITION, 
-                    "inline; filename=\"" + URLEncoder.encode(fileName, StandardCharsets.UTF_8.toString()) + "\"")
-                .body(fileData);
-
-        } catch (Exception e) {
-            log.error("파일 로드 실패: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                .body(resource);
+                
+        } catch (IOException e) {
+            log.error("이미지 파일 로드 실패: {}", e.getMessage());
+            return ResponseEntity.notFound().build();
         }
-    }
-
-    private String determineContentType(String fileName) {
-        String extension = fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
-        switch (extension) {
-            case "pdf":
-                return "application/pdf";
-            case "jpg":
-            case "jpeg":
-                return "image/jpeg";
-            case "png":
-                return "image/png";
-            case "gif":
-                return "image/gif";
-            default:
-                return "application/octet-stream";
-        }
-    }
-
-    // 직원 상태 업데이트
-    @PutMapping("/{companyId}/employees/{employeeId}")
-    public ResponseEntity<?> updateEmployee(
-            @PathVariable Long companyId,
-            @PathVariable Long employeeId,
-            @RequestBody EmployeeDTO employeeDTO) {
-        try {
-            companyService.updateEmployeeStatus(companyId, employeeId, employeeDTO.getActive());
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-    }
-
-    // 직원 삭제
-    @DeleteMapping("/{companyId}/employees/{employeeId}")
-    public ResponseEntity<?> removeEmployee(
-            @PathVariable Long companyId,
-            @PathVariable Long employeeId) {
-        try {
-            companyService.removeEmployee(companyId, employeeId);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-    }
-
-    // 직원 추가
-    @PostMapping("/{companyId}/employees")
-    public ResponseEntity<?> addEmployee(
-            @PathVariable Long companyId,
-            @RequestBody EmployeeDTO employeeDTO) {
-        try {
-            Employee employee = new Employee();
-            employee.setName(employeeDTO.getName());
-            employee.setPhone(employeeDTO.getPhone());
-            employee.setActive(true);
-            
-            companyService.addEmployee(companyId, employee);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-    }
-
-    @GetMapping("/{companyId}/employees")
-    public ResponseEntity<List<EmployeeDTO>> getCompanyEmployees(@PathVariable Long companyId) {
-        List<Employee> employees = companyService.getCompanyEmployees(companyId);
-        List<EmployeeDTO> employeeDTOs = employees.stream()
-            .map(emp -> {
-                EmployeeDTO dto = new EmployeeDTO();
-                dto.setEmployeeId(emp.getEmployeeId());  // 고유 ID 포함
-                dto.setName(emp.getName());
-                dto.setPhone(emp.getPhone());
-                dto.setActive(emp.getActive());
-                return dto;
-            })
-            .collect(Collectors.toList());
-        return ResponseEntity.ok(employeeDTOs);
     }
 } 

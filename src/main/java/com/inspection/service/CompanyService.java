@@ -1,8 +1,5 @@
 package com.inspection.service;
 
-import java.io.IOException;
-import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -11,13 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.dto.CompanyDTO;
-import com.inspection.dto.EmployeeDTO;
+import com.inspection.dto.CreateCompanyRequest;
 import com.inspection.entity.Company;
-import com.inspection.entity.CompanyStatus;
-import com.inspection.entity.Employee;
+import com.inspection.entity.CompanyImage;
 import com.inspection.repository.CompanyRepository;
-import com.inspection.util.EncryptionUtil;
-import com.inspection.util.FileUploadUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,463 +20,404 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class CompanyService {
-    private final CompanyRepository companyRepository;
-    private final EncryptionUtil aesEncryption;
-    private final FileUploadUtil fileUploadUtil;
     
-
+    private final CompanyRepository companyRepository;
+    private final CompanyImageStorageService companyImageStorageService;
+    
+    /**
+     * 새로운 회사를 생성합니다.
+     */
+    @Transactional
+    public CompanyDTO createCompany(CreateCompanyRequest request) {
+        // 매장코드 중복 체크
+        if (companyRepository.findByStoreCode(request.getStoreCode()).isPresent()) {
+            throw new RuntimeException("이미 존재하는 매장코드입니다: " + request.getStoreCode());
+        }
+        
+        // 사업자번호 중복 체크 (사업자번호가 있는 경우)
+        if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
+            companyRepository.findByBusinessNumber(request.getBusinessNumber()).isPresent()) {
+            throw new RuntimeException("이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
+        }
+        
+        // storeNumber 자동 생성 (001~999)
+        String storeNumber = generateNextStoreNumber();
+        
+        Company company = request.toEntity();
+        company.setStoreNumber(storeNumber); // 자동 생성된 storeNumber 설정
+        
+        // 등록자 정보가 없는 경우 기본값 설정
+        if (company.getCreatedBy() == null || company.getCreatedBy().isEmpty()) {
+            company.setCreatedBy("시스템");
+        }
+        
+        Company savedCompany = companyRepository.save(company);
+        
+        log.info("회사 생성 완료: {}, 매장번호: {}, 등록자: {}", 
+                savedCompany.getStoreName(), 
+                savedCompany.getStoreNumber(),
+                savedCompany.getCreatedBy());
+        return CompanyDTO.fromEntity(savedCompany);
+    }
+    
+    // 매장번호 자동생성
+    private String generateNextStoreNumber() {
+        // 가장 큰 매장 번호 조회
+        String maxStoreNumber = companyRepository.findMaxStoreNumber();
+        
+        int nextNumber = 1; // 기본값은 1
+        
+        if (maxStoreNumber != null && !maxStoreNumber.isEmpty()) {
+            try {
+                nextNumber = Integer.parseInt(maxStoreNumber) + 1;
+            } catch (NumberFormatException e) {
+                log.warn("매장 번호 파싱 오류, 기본값 1로 설정: {}", maxStoreNumber);
+            }
+        }
+        
+        // 999를 초과하면 예외 발생
+        if (nextNumber > 999) {
+            throw new RuntimeException("매장 번호가 최대값(999)을 초과했습니다.");
+        }
+        
+        // 3자리 숫자로 포맷팅 (001, 002, ...)
+        return String.format("%03d", nextNumber);
+    }
+    
+    /**
+     * 회사 이미지를 업로드합니다.
+     */
+    @Transactional
+    public CompanyDTO uploadCompanyImages(Long companyId, 
+                                         MultipartFile frontImage,
+                                         MultipartFile backImage,
+                                         MultipartFile leftSideImage,
+                                         MultipartFile rightSideImage,
+                                         MultipartFile fullImage) {
+        
+        Company company = companyRepository.findById(companyId)
+            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
+        
+        CompanyImage companyImage = company.getCompanyImage();
+        if (companyImage == null) {
+            companyImage = new CompanyImage();
+            companyImage.setCompany(company);
+            company.setCompanyImage(companyImage);
+        }
+        
+        // 이미지 저장 및 URL 설정
+        if (frontImage != null && !frontImage.isEmpty()) {
+            String frontImageUrl = companyImageStorageService.storeFile(frontImage, "company");
+            companyImage.setFrontImage(frontImageUrl);
+        }
+        
+        if (backImage != null && !backImage.isEmpty()) {
+            String backImageUrl = companyImageStorageService.storeFile(backImage, "company");
+            companyImage.setBackImage(backImageUrl);
+        }
+        
+        if (leftSideImage != null && !leftSideImage.isEmpty()) {
+            String leftSideImageUrl = companyImageStorageService.storeFile(leftSideImage, "company");
+            companyImage.setLeftSideImage(leftSideImageUrl);
+        }
+        
+        if (rightSideImage != null && !rightSideImage.isEmpty()) {
+            String rightSideImageUrl = companyImageStorageService.storeFile(rightSideImage, "company");
+            companyImage.setRightSideImage(rightSideImageUrl);
+        }
+        
+        if (fullImage != null && !fullImage.isEmpty()) {
+            String fullImageUrl = companyImageStorageService.storeFile(fullImage, "company");
+            companyImage.setFullImage(fullImageUrl);
+        }
+        
+        Company savedCompany = companyRepository.save(company);
+        log.info("회사 이미지 업로드 완료: {}", savedCompany.getStoreName());
+        
+        return CompanyDTO.fromEntity(savedCompany);
+    }
+    
+    /**
+     * 모든 회사 목록을 조회합니다.
+     */
     @Transactional(readOnly = true)
     public List<CompanyDTO> getAllCompanies() {
         return companyRepository.findAll().stream()
-            .map(this::convertToDTO)
+            .map(CompanyDTO::fromEntity)
             .collect(Collectors.toList());
     }
-
-    @Transactional
-    public CompanyDTO createCompany(CompanyDTO companyDTO,
-            MultipartFile businessLicenseImage,
-            MultipartFile exteriorImage,
-            MultipartFile entranceImage,
-            MultipartFile mainPanelImage,
-            MultipartFile etcImage1,
-            MultipartFile etcImage2,
-            MultipartFile etcImage3,
-            MultipartFile etcImage4) throws IOException {
-        
-        log.info("파일 업로드 시작: businessLicenseImage = {}", 
-            businessLicenseImage != null ? businessLicenseImage.getOriginalFilename() : "null");
-        
-        Company company = new Company();
-        updateCompanyFromDTO(company, companyDTO);
-
-        // 이미지 처리 추가
-        handleImages(company, businessLicenseImage, exteriorImage, entranceImage, mainPanelImage, 
-            etcImage1, etcImage2, etcImage3, etcImage4);
-
-        Company savedCompany = companyRepository.save(company);
-        log.info("저장된 회사 정보: businessLicenseImage = {}", savedCompany.getBusinessLicenseImage());
-        
-        return convertToDTO(savedCompany);
-    }
-
-    @Transactional
-    public Company getOrCreateCompany(String companyName) {
-        return companyRepository.findByCompanyName(companyName)
-            .orElseGet(() -> {
-                Company newCompany = new Company();
-                newCompany.setCompanyName(companyName);
-                newCompany.setActive(true);
-                return companyRepository.save(newCompany);
-            });
-    }
-
+    
+    /**
+     * 활성화된 회사 목록을 조회합니다.
+     */
     @Transactional(readOnly = true)
-    public Company getCompanyById(Long companyId) {
-        return companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("업체를 찾을 수 없습니다. ID: " + companyId));
+    public List<CompanyDTO> getActiveCompanies() {
+        return companyRepository.findByActiveTrue().stream()
+            .map(CompanyDTO::fromEntity)
+            .collect(Collectors.toList());
     }
-
+    
+    /**
+     * 회사 ID로 회사 정보를 조회합니다.
+     */
+    @Transactional(readOnly = true)
+    public CompanyDTO getCompanyById(Long companyId) {
+        Company company = companyRepository.findWithImageById(companyId)
+            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
+        
+        return CompanyDTO.fromEntity(company);
+    }
+    
+    /**
+     * 회사 정보를 수정합니다.
+     */
     @Transactional
-    public CompanyDTO updateCompany(Long companyId, CompanyDTO companyDTO,
-            MultipartFile exteriorImage,
-            MultipartFile entranceImage,
-            MultipartFile mainPanelImage,
-            MultipartFile etcImage1,
-            MultipartFile etcImage2,
-            MultipartFile etcImage3,
-            MultipartFile etcImage4,
-            MultipartFile businessLicenseImage) throws IOException {
-        
-        Company company = getCompanyById(companyId);
-        updateCompanyFromDTO(company, companyDTO);
-
-        // 이미지 처리 추가
-        handleImages(company, exteriorImage, entranceImage, mainPanelImage, 
-            etcImage1, etcImage2, etcImage3, etcImage4, businessLicenseImage);
-
-        Company savedCompany = companyRepository.save(company);
-        return convertToDTO(savedCompany);
-    }
-
-    // 이미지 처리를 위한 헬퍼 메서드
-    private void handleImages(Company company,
-            MultipartFile businessLicenseImage,
-            MultipartFile exteriorImage,
-            MultipartFile entranceImage,
-            MultipartFile mainPanelImage,
-            MultipartFile etcImage1,
-            MultipartFile etcImage2,
-            MultipartFile etcImage3,
-            MultipartFile etcImage4) throws IOException {
-        
-        if (businessLicenseImage != null && !businessLicenseImage.isEmpty()) {
-            log.info("사업자등록증 파일 처리 시작: {}", businessLicenseImage.getOriginalFilename());
-            String savedFileName = fileUploadUtil.saveFile(businessLicenseImage);
-            log.info("저장된 파일명: {}", savedFileName);
-            company.setBusinessLicenseImage(savedFileName);
-        } else {
-            log.info("사업자등록증 파일이 없거나 비어있음");
-        }
-        
-        if (exteriorImage != null && !exteriorImage.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getExteriorImage());
-            company.setExteriorImage(fileUploadUtil.saveFile(exteriorImage));
-        }
-        if (entranceImage != null && !entranceImage.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getEntranceImage());
-            company.setEntranceImage(fileUploadUtil.saveFile(entranceImage));
-        }
-        if (mainPanelImage != null && !mainPanelImage.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getMainPanelImage());
-            company.setMainPanelImage(fileUploadUtil.saveFile(mainPanelImage));
-        }
-        if (etcImage1 != null && !etcImage1.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getEtcImage1());
-            company.setEtcImage1(fileUploadUtil.saveFile(etcImage1));
-        }
-        if (etcImage2 != null && !etcImage2.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getEtcImage2());
-            company.setEtcImage2(fileUploadUtil.saveFile(etcImage2));
-        }
-        if (etcImage3 != null && !etcImage3.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getEtcImage3());
-            company.setEtcImage3(fileUploadUtil.saveFile(etcImage3));
-        }
-        if (etcImage4 != null && !etcImage4.isEmpty()) {
-            fileUploadUtil.deleteFile(company.getEtcImage4());
-            company.setEtcImage4(fileUploadUtil.saveFile(etcImage4));
-        }
-    }
-
-    // 계약 정보 수정 메서드
-    @Transactional
-    public CompanyDTO updateContractInfo(Long companyId, CompanyDTO companyDTO) {
+    public CompanyDTO updateCompany(Long companyId, CreateCompanyRequest request) {
         Company company = companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다."));
-
-        company.setContractDate(companyDTO.getContractDate());
-        company.setStartDate(companyDTO.getStartDate());
-        company.setExpiryDate(companyDTO.getExpiryDate());
-        company.setMonthlyFee(companyDTO.getMonthlyFee());
-        company.setStatus(companyDTO.getStatus());
-        company.setTerminationDate(companyDTO.getTerminationDate());
-
-        if (companyDTO.getStatus() == CompanyStatus.TERMINATED) {
-            company.setTerminationDate(LocalDate.now());
+            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
+        
+        // 매장코드 중복 체크 (변경된 경우)
+        if (!company.getStoreCode().equals(request.getStoreCode()) &&
+            companyRepository.findByStoreCode(request.getStoreCode()).isPresent()) {
+            throw new RuntimeException("이미 존재하는 매장코드입니다: " + request.getStoreCode());
         }
-
-        Company savedCompany = companyRepository.save(company);
-        return convertToDTO(savedCompany);
+        
+        // 사업자번호 중복 체크 (변경된 경우)
+        if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
+            !request.getBusinessNumber().equals(company.getBusinessNumber()) &&
+            companyRepository.findByBusinessNumber(request.getBusinessNumber()).isPresent()) {
+            throw new RuntimeException("이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
+        }
+        
+        // 기존 등록자 정보 저장 (수정 시에는 등록자 정보를 변경하지 않음)
+        String originalCreatedBy = company.getCreatedBy();
+        
+        // 회사 정보 업데이트
+        company.setStoreCode(request.getStoreCode());
+        company.setStoreNumber(request.getStoreNumber());
+        company.setStoreName(request.getStoreName());
+        company.setTrustee(request.getTrustee());
+        company.setTrusteeCode(request.getTrusteeCode());
+        company.setBusinessNumber(request.getBusinessNumber());
+        company.setCompanyName(request.getCompanyName());
+        company.setRepresentativeName(request.getRepresentativeName());
+        company.setActive(request.isActive());
+        company.setStartDate(request.getStartDate());
+        company.setEndDate(request.getEndDate());
+        company.setManagerName(request.getManagerName());
+        company.setEmail(request.getEmail());
+        company.setSubBusinessNumber(request.getSubBusinessNumber());
+        company.setPhoneNumber(request.getPhoneNumber());
+        company.setAddress(request.getAddress());
+        company.setBusinessType(request.getBusinessType());
+        company.setBusinessCategory(request.getBusinessCategory());
+        
+        // 기존 등록자 정보 복원 (수정 시에는 등록자 정보를 변경하지 않음)
+        company.setCreatedBy(originalCreatedBy);
+        
+        Company updatedCompany = companyRepository.save(company);
+        log.info("회사 정보 수정 완료: {}", updatedCompany.getStoreName());
+        
+        return CompanyDTO.fromEntity(updatedCompany);
     }
-
-    private void deleteExistingImage(String fileName) {
-        if (fileName != null && !fileName.isEmpty()) {
-            fileUploadUtil.deleteFile(fileName);
-        }
-    }
-
-    // ✅ 업체 정보를 DTO로 변환
-    private CompanyDTO convertToDTO(Company company) {
-        CompanyDTO dto = new CompanyDTO();
-        dto.setCompanyId(company.getCompanyId());
-        dto.setCompanyName(company.getCompanyName());
-
-        // 전화번호 복호화
-        if (company.getPhoneNumber() != null && !company.getPhoneNumber().isEmpty()) {
-            try {
-                dto.setPhoneNumber(aesEncryption.decrypt(company.getPhoneNumber()));
-            } catch (Exception e) {
-                dto.setPhoneNumber(company.getPhoneNumber());
-            }
-        }
-
-        // 팩스번호 복호화
-        if (company.getFaxNumber() != null && !company.getFaxNumber().isEmpty()) {
-            try {
-                dto.setFaxNumber(aesEncryption.decrypt(company.getFaxNumber()));
-            } catch (Exception e) {
-                dto.setFaxNumber(company.getFaxNumber());
-            }
-        }
-
-        dto.setNotes(company.getNotes());
-        dto.setActive(company.isActive());
-
-        // 주소 정보 추가
-        dto.setAddress(company.getAddress());
-
-        // 사업자번호 추가
-        dto.setBusinessNumber(company.getBusinessNumber());
-
-        // 계약일자 추가
-        dto.setContractDate(company.getContractDate());
-
-        // 시작일자 추가
-        dto.setStartDate(company.getStartDate());
-
-        // 만기일자 추가
-        dto.setExpiryDate(company.getExpiryDate());
-
-        // 월 비용 추가
-        dto.setMonthlyFee(company.getMonthlyFee());
-
-        // 상태 추가
-        dto.setStatus(company.getStatus());
-
-        // 해지일자 추가
-        dto.setTerminationDate(company.getTerminationDate());
-
-        // 외관사진 추가
-        dto.setExteriorImage(company.getExteriorImage());
-
-        // 입구사진 추가
-        dto.setEntranceImage(company.getEntranceImage());
-
-        // 메인 분전함사진 추가
-        dto.setMainPanelImage(company.getMainPanelImage());
-
-        // 기타1 추가
-        dto.setEtcImage1(company.getEtcImage1());
-
-        // 기타2 추가
-        dto.setEtcImage2(company.getEtcImage2());
-
-        // 기타3 추가
-        dto.setEtcImage3(company.getEtcImage3());
-
-        // 기타4 추가
-        dto.setEtcImage4(company.getEtcImage4());
-        
-        // 사업자등록증 이미지 추가
-        dto.setBusinessLicenseImage(company.getBusinessLicenseImage());
-        
-        
-        
-        
-        
-
-        // ✅ 건축물 정보 추가
-        dto.setBuildingPermitDate(company.getBuildingPermitDate());
-        dto.setOccupancyDate(company.getOccupancyDate());
-        dto.setTotalFloorArea(company.getTotalFloorArea());
-        dto.setBuildingArea(company.getBuildingArea());
-
-        dto.setNumberOfUnits(company.getNumberOfUnits());
-        dto.setFloorCount(company.getFloorCount());
-        dto.setBuildingHeight(company.getBuildingHeight());
-        dto.setNumberOfBuildings(company.getNumberOfBuildings());
-        dto.setBuildingStructure(company.getBuildingStructure());
-        dto.setRoofStructure(company.getRoofStructure());
-        dto.setRamp(company.getRamp());
-        dto.setStairsType(company.getStairsType());
-        dto.setStairsCount(company.getStairsCount());
-        dto.setElevatorType(company.getElevatorType());
-        dto.setElevatorCount(company.getElevatorCount());
-        dto.setParkingLot(company.getParkingLot());
-
-        // 직원 정보 변환 추가
-        dto.setEmployees(company.getEmployees().stream()
-            .map(emp -> {
-                EmployeeDTO empDTO = new EmployeeDTO();
-                empDTO.setName(emp.getName());
-                empDTO.setPhone(emp.getPhone());
-                empDTO.setActive(emp.getActive());
-                return empDTO;
-            })
-            .collect(Collectors.toList()));
-
-        return dto;
-    }
-
-
-
-    // ✅ 업체 정보를 DTO로 변환
-    private void updateCompanyFromDTO(Company company, CompanyDTO dto) {
-        company.setCompanyName(dto.getCompanyName());
-        
-        // 전화번호 암호화
-        if (dto.getPhoneNumber() != null && !dto.getPhoneNumber().isEmpty()) {
-            company.setPhoneNumber(aesEncryption.encrypt(dto.getPhoneNumber()));
-        }
-        
-        // 팩스번호 암호화
-        if (dto.getFaxNumber() != null && !dto.getFaxNumber().isEmpty()) {
-            company.setFaxNumber(aesEncryption.encrypt(dto.getFaxNumber()));
-        }
-        
-        company.setNotes(dto.getNotes());
-        company.setActive(true);  // ✅ 저장할 때 항상 true로 설정 (주의 필요)
-
-        // 주소 정보 추가
-        company.setAddress(dto.getAddress());
-
-        // 사업자번호 추가
-        company.setBusinessNumber(dto.getBusinessNumber());
-
-        // 계약일자 추가
-        company.setContractDate(dto.getContractDate());
-
-        // 시작일자 추가
-        company.setStartDate(dto.getStartDate());
-
-        // 만기일자 추가
-        company.setExpiryDate(dto.getExpiryDate());
-
-        // 월 비용 추가
-        company.setMonthlyFee(dto.getMonthlyFee());
-
-        // 상태 추가
-        company.setStatus(dto.getStatus());
-
-        // 해지일자 추가
-        company.setTerminationDate(dto.getTerminationDate());
-
-        // 외관사진 추가
-        company.setExteriorImage(dto.getExteriorImage());
-
-        // 입구사진 추가
-        company.setEntranceImage(dto.getEntranceImage());
-
-        // 메인 분전함사진 추가
-        company.setMainPanelImage(dto.getMainPanelImage());
-
-        // 기타1 추가       
-        company.setEtcImage1(dto.getEtcImage1());
-
-        // 기타2 추가
-        company.setEtcImage2(dto.getEtcImage2());
-
-        // 기타3 추가   
-        company.setEtcImage3(dto.getEtcImage3());
-
-        // 기타4 추가
-        company.setEtcImage4(dto.getEtcImage4());
-
-        // 사업자등록증 이미지 추가
-        company.setBusinessLicenseImage(dto.getBusinessLicenseImage());
-
-
-        // ✅ 건축물 정보 추가
-        company.setBuildingPermitDate(dto.getBuildingPermitDate());
-        company.setOccupancyDate(dto.getOccupancyDate());
-        company.setTotalFloorArea(dto.getTotalFloorArea());
-        company.setBuildingArea(dto.getBuildingArea());
-
-        company.setNumberOfUnits(dto.getNumberOfUnits());
-        company.setFloorCount(dto.getFloorCount());
-        company.setBuildingHeight(dto.getBuildingHeight());
-        company.setNumberOfBuildings(dto.getNumberOfBuildings());
-        company.setBuildingStructure(dto.getBuildingStructure());
-        company.setRoofStructure(dto.getRoofStructure());
-        company.setRamp(dto.getRamp());
-        company.setStairsType(dto.getStairsType());
-        company.setStairsCount(dto.getStairsCount());
-        company.setElevatorType(dto.getElevatorType());
-        company.setElevatorCount(dto.getElevatorCount());
-        company.setParkingLot(dto.getParkingLot());
-
-        // 직원 정보 처리 수정
-        if (dto.getEmployees() != null) {
-            // 기존 직원 목록 유지를 위한 임시 리스트
-            List<Employee> updatedEmployees = new ArrayList<>();
-            
-            // 새로운/수정된 직원 정보 처리
-            dto.getEmployees().forEach(empDTO -> {
-                // 기존 직원 찾기 (전화번호로 매칭)
-                Employee existingEmployee = company.getEmployees().stream()
-                    .filter(emp -> emp.getPhone().equals(empDTO.getPhone()))
-                    .findFirst()
-                    .orElse(null);
-
-                if (existingEmployee != null) {
-                    // 기존 직원 정보 업데이트
-                    existingEmployee.setName(empDTO.getName());
-                    existingEmployee.setActive(empDTO.getActive());
-                    updatedEmployees.add(existingEmployee);
-                } else {
-                    // 새로운 직원 추가
-                    Employee newEmployee = new Employee();
-                    newEmployee.setName(empDTO.getName());
-                    newEmployee.setPhone(empDTO.getPhone());
-                    newEmployee.setActive(empDTO.getActive());
-                    newEmployee.setCompany(company);
-                    updatedEmployees.add(newEmployee);
-                }
-            });
-            
-            // 기존 직원 목록 초기화 후 업데이트된 목록으로 교체
-            company.getEmployees().clear();
-            company.getEmployees().addAll(updatedEmployees);
-        }
-    }
-
-
-
-
-
+    
+    /**
+     * 회사를 삭제합니다.
+     */
     @Transactional
     public void deleteCompany(Long companyId) {
         Company company = companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("업체를 찾을 수 없습니다. ID: " + companyId));
+            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
+        
+        // 회사 이미지가 있는 경우 이미지 파일 삭제
+        if (company.getCompanyImage() != null) {
+            CompanyImage image = company.getCompanyImage();
+            
+            if (image.getFrontImage() != null) {
+                companyImageStorageService.deleteFile(image.getFrontImage());
+            }
+            if (image.getBackImage() != null) {
+                companyImageStorageService.deleteFile(image.getBackImage());
+            }
+            if (image.getLeftSideImage() != null) {
+                companyImageStorageService.deleteFile(image.getLeftSideImage());
+            }
+            if (image.getRightSideImage() != null) {
+                companyImageStorageService.deleteFile(image.getRightSideImage());
+            }
+            if (image.getFullImage() != null) {
+                companyImageStorageService.deleteFile(image.getFullImage());
+            }
+        }
+        
         companyRepository.delete(company);
+        log.info("회사 삭제 완료: {}", company.getStoreName());
     }
-
+    
+    /**
+     * 회사 상태를 변경합니다 (활성화/비활성화).
+     */
+    @Transactional
+    public CompanyDTO toggleCompanyStatus(Long companyId) {
+        Company company = companyRepository.findById(companyId)
+            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
+        
+        company.setActive(!company.isActive());
+        Company updatedCompany = companyRepository.save(company);
+        
+        String status = updatedCompany.isActive() ? "활성화" : "비활성화";
+        log.info("회사 상태 변경 완료: {} - {}", updatedCompany.getStoreName(), status);
+        
+        return CompanyDTO.fromEntity(updatedCompany);
+    }
+    
+    /**
+     * 매장명으로 회사를 검색합니다.
+     */
     @Transactional(readOnly = true)
-    public CompanyDTO getCompanyDTOById(Long companyId) {
-        Company company = getCompanyById(companyId);
-        return convertToDTO(company);
+    public List<CompanyDTO> searchCompaniesByName(String storeName) {
+        return companyRepository.findByStoreNameContaining(storeName).stream()
+            .map(CompanyDTO::fromEntity)
+            .collect(Collectors.toList());
     }
-
+    
+    /**
+     * 회사 이미지를 수정합니다. 기존 이미지가 있으면 삭제하고 새 이미지로 교체합니다.
+     */
     @Transactional
-    public void addEmployee(Long companyId, Employee employee) {
+    public CompanyDTO updateCompanyImages(Long companyId, 
+                                         MultipartFile frontImage,
+                                         MultipartFile backImage,
+                                         MultipartFile leftSideImage,
+                                         MultipartFile rightSideImage,
+                                         MultipartFile fullImage) {
+        
         Company company = companyRepository.findById(companyId)
             .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
         
-        employee.setCompany(company);
-        company.getEmployees().add(employee);
-        companyRepository.save(company);
+        CompanyImage companyImage = company.getCompanyImage();
+        if (companyImage == null) {
+            companyImage = new CompanyImage();
+            companyImage.setCompany(company);
+            company.setCompanyImage(companyImage);
+        }
+        
+        // 이미지 수정 (기존 이미지 삭제 후 새 이미지 저장)
+        if (frontImage != null && !frontImage.isEmpty()) {
+            // 기존 이미지 삭제
+            if (companyImage.getFrontImage() != null) {
+                companyImageStorageService.deleteFile(companyImage.getFrontImage());
+            }
+            // 새 이미지 저장
+            String frontImageUrl = companyImageStorageService.storeFile(frontImage, "company");
+            companyImage.setFrontImage(frontImageUrl);
+        }
+        
+        if (backImage != null && !backImage.isEmpty()) {
+            // 기존 이미지 삭제
+            if (companyImage.getBackImage() != null) {
+                companyImageStorageService.deleteFile(companyImage.getBackImage());
+            }
+            // 새 이미지 저장
+            String backImageUrl = companyImageStorageService.storeFile(backImage, "company");
+            companyImage.setBackImage(backImageUrl);
+        }
+        
+        if (leftSideImage != null && !leftSideImage.isEmpty()) {
+            // 기존 이미지 삭제
+            if (companyImage.getLeftSideImage() != null) {
+                companyImageStorageService.deleteFile(companyImage.getLeftSideImage());
+            }
+            // 새 이미지 저장
+            String leftSideImageUrl = companyImageStorageService.storeFile(leftSideImage, "company");
+            companyImage.setLeftSideImage(leftSideImageUrl);
+        }
+        
+        if (rightSideImage != null && !rightSideImage.isEmpty()) {
+            // 기존 이미지 삭제
+            if (companyImage.getRightSideImage() != null) {
+                companyImageStorageService.deleteFile(companyImage.getRightSideImage());
+            }
+            // 새 이미지 저장
+            String rightSideImageUrl = companyImageStorageService.storeFile(rightSideImage, "company");
+            companyImage.setRightSideImage(rightSideImageUrl);
+        }
+        
+        if (fullImage != null && !fullImage.isEmpty()) {
+            // 기존 이미지 삭제
+            if (companyImage.getFullImage() != null) {
+                companyImageStorageService.deleteFile(companyImage.getFullImage());
+            }
+            // 새 이미지 저장
+            String fullImageUrl = companyImageStorageService.storeFile(fullImage, "company");
+            companyImage.setFullImage(fullImageUrl);
+        }
+        
+        Company savedCompany = companyRepository.save(company);
+        log.info("회사 이미지 수정 완료: {}", savedCompany.getStoreName());
+        
+        return CompanyDTO.fromEntity(savedCompany);
     }
-
+    
+    /**
+     * 특정 회사 이미지를 삭제합니다.
+     * 
+     * @param companyId 회사 ID
+     * @param imageType 이미지 타입 (front, back, leftSide, rightSide, full)
+     * @return 업데이트된 회사 정보
+     */
     @Transactional
-    public void addEmployees(Long companyId, List<Employee> employees) {
+    public CompanyDTO deleteCompanyImage(Long companyId, String imageType) {
         Company company = companyRepository.findById(companyId)
             .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
         
-        employees.forEach(employee -> {
-            employee.setCompany(company);
-            company.getEmployees().add(employee);
-        });
+        CompanyImage companyImage = company.getCompanyImage();
+        if (companyImage == null) {
+            throw new RuntimeException("회사 이미지 정보가 없습니다. 회사 ID: " + companyId);
+        }
         
-        companyRepository.save(company);
-    }
-
-    @Transactional
-    public void removeEmployee(Long companyId, Long employeeId) {
-        Company company = companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
+        // 이미지 타입에 따라 해당 이미지 삭제
+        switch (imageType.toLowerCase()) {
+            case "front":
+                if (companyImage.getFrontImage() != null) {
+                    companyImageStorageService.deleteFile(companyImage.getFrontImage());
+                    companyImage.setFrontImage(null);
+                    log.info("회사 전면 이미지 삭제 완료: {}", company.getStoreName());
+                }
+                break;
+            case "back":
+                if (companyImage.getBackImage() != null) {
+                    companyImageStorageService.deleteFile(companyImage.getBackImage());
+                    companyImage.setBackImage(null);
+                    log.info("회사 후면 이미지 삭제 완료: {}", company.getStoreName());
+                }
+                break;
+            case "leftside":
+                if (companyImage.getLeftSideImage() != null) {
+                    companyImageStorageService.deleteFile(companyImage.getLeftSideImage());
+                    companyImage.setLeftSideImage(null);
+                    log.info("회사 좌측 이미지 삭제 완료: {}", company.getStoreName());
+                }
+                break;
+            case "rightside":
+                if (companyImage.getRightSideImage() != null) {
+                    companyImageStorageService.deleteFile(companyImage.getRightSideImage());
+                    companyImage.setRightSideImage(null);
+                    log.info("회사 우측 이미지 삭제 완료: {}", company.getStoreName());
+                }
+                break;
+            case "full":
+                if (companyImage.getFullImage() != null) {
+                    companyImageStorageService.deleteFile(companyImage.getFullImage());
+                    companyImage.setFullImage(null);
+                    log.info("회사 전체 이미지 삭제 완료: {}", company.getStoreName());
+                }
+                break;
+            default:
+                throw new RuntimeException("지원하지 않는 이미지 타입입니다: " + imageType);
+        }
         
-        company.getEmployees().removeIf(employee -> employee.getEmployeeId().equals(employeeId));
-        companyRepository.save(company);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Employee> getCompanyEmployees(Long companyId) {
-        Company company = companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
-        
-        return company.getEmployees();
-    }
-
-    @Transactional
-    public void updateEmployeeStatus(Long companyId, Long employeeId, boolean active) {
-        Company company = companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
-        
-        company.getEmployees().stream()
-            .filter(employee -> employee.getEmployeeId().equals(employeeId))
-            .findFirst()
-            .ifPresent(employee -> employee.setActive(active));
-        
-        companyRepository.save(company);
+        Company savedCompany = companyRepository.save(company);
+        return CompanyDTO.fromEntity(savedCompany);
     }
 } 
