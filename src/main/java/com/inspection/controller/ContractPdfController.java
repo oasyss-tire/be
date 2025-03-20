@@ -33,6 +33,10 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.repository.ContractParticipantRepository;
+import java.time.LocalDateTime;
+import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.entity.ParticipantTemplateMapping;
+import java.util.HashMap;
 
 @Slf4j
 @RestController
@@ -46,6 +50,7 @@ public class ContractPdfController {
     private final ContractTemplateService contractTemplateService;
     private final ContractTemplateRepository contractTemplateRepository;
     private final ContractParticipantRepository participantRepository;
+    private final ParticipantTemplateMappingRepository templateMappingRepository;
 
     @Value("${file.upload.path}")
     private String uploadPath;
@@ -268,13 +273,16 @@ public class ContractPdfController {
             Path signedPath = signedDir.resolve(signedPdfId);
             Files.write(signedPath, processedPdf);
             
-            // 6. ContractParticipant 업데이트
-            ContractParticipant participant = participantRepository.findByPdfId(pdfId)
-                .orElseThrow(() -> new RuntimeException("참여자 정보를 찾을 수 없습니다: " + pdfId));
+            // 6. ParticipantTemplateMapping 업데이트
+            ParticipantTemplateMapping templateMapping = templateMappingRepository.findByPdfId(pdfId)
+                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
             
-            participant.setSignedPdfId(signedPdfId);
-            participantRepository.save(participant);
-            log.info("Updated participant signed PDF ID: {}", signedPdfId);
+            templateMapping.setSignedPdfId(signedPdfId);
+            templateMapping.setSigned(true);
+            templateMapping.setSignedAt(LocalDateTime.now());
+            
+            templateMappingRepository.save(templateMapping);
+            log.info("Updated template mapping signed PDF ID: {}", signedPdfId);
             
             // 7. 한글 파일명 인코딩 처리
             String encodedFilename = URLEncoder.encode(signedPdfId, StandardCharsets.UTF_8.toString())
@@ -296,18 +304,33 @@ public class ContractPdfController {
     @GetMapping("/download-signed-pdf/{pdfId}")
     public ResponseEntity<byte[]> downloadSignedPdf(@PathVariable String pdfId) {
         try {
+            // 서명된 PDF ID 찾기
+            String signedPdfId = pdfId;
+            
+            // pdfId가 원본 PDF ID인 경우, 해당 매핑에서 서명된 PDF ID 조회
+            if (!pdfId.startsWith("signed_")) {
+                ParticipantTemplateMapping mapping = templateMappingRepository.findByPdfId(pdfId)
+                    .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
+                
+                if (mapping.getSignedPdfId() == null) {
+                    throw new RuntimeException("아직 서명되지 않은 PDF입니다: " + pdfId);
+                }
+                
+                signedPdfId = mapping.getSignedPdfId();
+            }
+            
             // 경로 수정
-            Path signedPath = Paths.get(uploadPath, "signed", pdfId);
+            Path signedPath = Paths.get(uploadPath, "signed", signedPdfId);
             
             if (!Files.exists(signedPath)) {
                 log.warn("PDF not found at path: {}", signedPath);
-                throw new RuntimeException("서명된 PDF를 찾을 수 없습니다: " + pdfId);
+                throw new RuntimeException("서명된 PDF를 찾을 수 없습니다: " + signedPdfId);
             }
             
             byte[] pdfBytes = Files.readAllBytes(signedPath);
             
             // 한글 파일명 인코딩
-            String filename = "signed_" + pdfId;
+            String filename = signedPdfId;
             String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString())
                 .replaceAll("\\+", "%20");
             
@@ -319,6 +342,43 @@ public class ContractPdfController {
                 
         } catch (Exception e) {
             log.error("Error downloading signed PDF: {}", pdfId, e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    // 모든 서명된 PDF 다운로드 (참여자별)
+    @GetMapping("/download-all-signed-pdfs/{participantId}")
+    public ResponseEntity<?> downloadAllSignedPdfs(@PathVariable Long participantId) {
+        try {
+            // 참여자 정보 조회
+            ContractParticipant participant = participantRepository.findById(participantId)
+                .orElseThrow(() -> new RuntimeException("참여자 정보를 찾을 수 없습니다: " + participantId));
+            
+            // 모든 템플릿 매핑 조회
+            List<ParticipantTemplateMapping> mappings = participant.getTemplateMappings();
+            
+            // 서명이 완료되지 않은 템플릿이 있는지 확인
+            boolean allSigned = mappings.stream().allMatch(ParticipantTemplateMapping::isSigned);
+            if (!allSigned) {
+                return ResponseEntity.badRequest().body("모든 문서에 서명이 완료되지 않았습니다.");
+            }
+            
+            // 각 템플릿의 서명된 PDF 경로와 이름을 응답
+            List<Map<String, String>> signedPdfs = mappings.stream()
+                .filter(mapping -> mapping.getSignedPdfId() != null)
+                .map(mapping -> {
+                    Map<String, String> pdfInfo = new HashMap<>();
+                    pdfInfo.put("pdfId", mapping.getSignedPdfId());
+                    pdfInfo.put("templateName", mapping.getContractTemplateMapping().getTemplate().getTemplateName());
+                    pdfInfo.put("downloadUrl", "/api/contract-pdf/download-signed-pdf/" + mapping.getSignedPdfId());
+                    return pdfInfo;
+                })
+                .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(signedPdfs);
+                
+        } catch (Exception e) {
+            log.error("Error getting all signed PDFs: {}", participantId, e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }

@@ -1,0 +1,25 @@
+package com.inspection.repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.inspection.entity.ParticipantTemplateMapping;
+import java.util.Optional;
+import java.util.List;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface ParticipantTemplateMappingRepository extends JpaRepository<ParticipantTemplateMapping, Long> {
+    Optional<ParticipantTemplateMapping> findByPdfId(String pdfId);
+    
+    // 참여자 ID로 모든 템플릿 매핑 조회
+    @Query("SELECT ptm FROM ParticipantTemplateMapping ptm WHERE ptm.id IN " +
+           "(SELECT tm.id FROM ContractParticipant cp JOIN cp.templateMappings tm WHERE cp.id = :participantId)")
+    List<ParticipantTemplateMapping> findAllByParticipantId(@Param("participantId") Long participantId);
+    
+    // 계약 ID에 해당하는 특정 참여자의 모든 템플릿 매핑 조회
+    @Query("SELECT ptm FROM ParticipantTemplateMapping ptm " +
+           "JOIN ContractParticipant cp ON ptm.id IN (SELECT tm.id FROM cp.templateMappings tm) " +
+           "WHERE cp.id = :participantId AND cp.contract.id = :contractId")
+    List<ParticipantTemplateMapping> findAllByContractIdAndParticipantId(
+            @Param("contractId") Long contractId, 
+            @Param("participantId") Long participantId);
+} 

@@ -28,11 +28,15 @@ public class Contract {
     private LocalDateTime completedAt;      // 계약 완료일
     private LocalDateTime lastModifiedAt;   // 최종 수정일
     
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "template_id")
-    private ContractTemplate template;      // 연결된 계약서 템플릿
+    // 다중 템플릿 관계 추가
+    @OneToMany(mappedBy = "contract", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ContractTemplateMapping> templateMappings = new ArrayList<>();
     
-    private String contractPdfId;           // 실제 계약서 PDF ID
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id", nullable = true)
+    private Company company;                // 계약 회사
+    
+    private String contractPdfId;           // 실제 계약서 PDF ID (대표 PDF, 첫 번째 템플릿의 PDF)
     
     @OneToMany(mappedBy = "contract", cascade = CascadeType.ALL)
     private List<ContractParticipant> participants = new ArrayList<>();  // 서명 참여자 목록
@@ -51,6 +55,12 @@ public class Contract {
     public void addParticipant(ContractParticipant participant) {
         this.participants.add(participant);
         participant.setContract(this);
+    }
+    
+    // 템플릿 매핑 추가 메서드
+    public void addTemplateMapping(ContractTemplate template, int sortOrder, String processedPdfId) {
+        ContractTemplateMapping mapping = ContractTemplateMapping.create(this, template, sortOrder, processedPdfId);
+        this.templateMappings.add(mapping);
     }
     
     // 진행률 계산 메서드

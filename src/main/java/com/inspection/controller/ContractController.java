@@ -2,6 +2,8 @@ package com.inspection.controller;
 
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.HashMap;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -17,10 +19,16 @@ import com.inspection.dto.ContractDTO;
 import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.ParticipantDetailDTO;
 import com.inspection.entity.Contract;
+import com.inspection.entity.ContractParticipant;
 import com.inspection.service.ContractService;
 import com.inspection.dto.PhoneVerificationRequest;
 import com.inspection.dto.ErrorResponse;
 import com.inspection.util.EncryptionUtil;
+import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.repository.ContractParticipantRepository;
+import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.dto.TemplateSignStatusDTO;
+import com.inspection.exception.ResourceNotFoundException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +42,8 @@ import org.springframework.http.HttpStatus;
 public class ContractController {
     private final ContractService contractService;
     private final EncryptionUtil encryptionUtil;
+    private final ParticipantTemplateMappingRepository templateMappingRepository;
+    private final ContractParticipantRepository participantRepository;
     
     // 계약 생성
     @PostMapping
@@ -147,6 +157,90 @@ public class ContractController {
             log.error("Error verifying participant", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("인증 처리 중 오류가 발생했습니다."));
+        }
+    }
+    
+    // 참여자의 템플릿 서명 상태 조회
+    @GetMapping("/{contractId}/participants/{participantId}/template-status")
+    public ResponseEntity<List<TemplateSignStatusDTO>> getParticipantTemplateStatus(
+            @PathVariable Long contractId,
+            @PathVariable Long participantId) {
+        
+        try {
+            // 1. 해당 참여자가 존재하는지 확인
+            ContractParticipant participant = participantRepository.findById(participantId)
+                .orElseThrow(() -> new ResourceNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+            
+            // 2. 해당 계약에 속한 참여자인지 확인
+            if (!participant.getContract().getId().equals(contractId)) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            // 3. 참여자의 모든 템플릿 매핑 조회
+            List<ParticipantTemplateMapping> mappings = 
+                templateMappingRepository.findAllByContractIdAndParticipantId(contractId, participantId);
+            
+            // 4. DTO로 변환
+            List<TemplateSignStatusDTO> statusList = mappings.stream()
+                .map(mapping -> {
+                    TemplateSignStatusDTO dto = new TemplateSignStatusDTO();
+                    dto.setMappingId(mapping.getId());
+                    dto.setPdfId(mapping.getPdfId());
+                    dto.setSignedPdfId(mapping.getSignedPdfId());
+                    dto.setSigned(mapping.isSigned());
+                    dto.setSignedAt(mapping.getSignedAt());
+                    dto.setTemplateName(mapping.getContractTemplateMapping().getTemplate().getTemplateName());
+                    return dto;
+                })
+                .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(statusList);
+            
+        } catch (ResourceNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            log.error("템플릿 서명 상태 조회 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    // 모든 참여자의 템플릿 서명 상태 조회
+    @GetMapping("/{contractId}/template-status")
+    public ResponseEntity<Map<Long, List<TemplateSignStatusDTO>>> getAllParticipantsTemplateStatus(
+            @PathVariable Long contractId) {
+        
+        try {
+            // 1. 계약에 속한 모든 참여자 조회
+            List<ContractParticipant> participants = participantRepository.findByContractId(contractId);
+            
+            // 2. 각 참여자별로 템플릿 상태 조회 및 매핑
+            Map<Long, List<TemplateSignStatusDTO>> result = new HashMap<>();
+            
+            for (ContractParticipant participant : participants) {
+                List<ParticipantTemplateMapping> mappings = 
+                    templateMappingRepository.findAllByContractIdAndParticipantId(contractId, participant.getId());
+                
+                List<TemplateSignStatusDTO> statusList = mappings.stream()
+                    .map(mapping -> {
+                        TemplateSignStatusDTO dto = new TemplateSignStatusDTO();
+                        dto.setMappingId(mapping.getId());
+                        dto.setPdfId(mapping.getPdfId());
+                        dto.setSignedPdfId(mapping.getSignedPdfId());
+                        dto.setSigned(mapping.isSigned());
+                        dto.setSignedAt(mapping.getSignedAt());
+                        dto.setTemplateName(mapping.getContractTemplateMapping().getTemplate().getTemplateName());
+                        return dto;
+                    })
+                    .collect(Collectors.toList());
+                
+                result.put(participant.getId(), statusList);
+            }
+            
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            log.error("모든 참여자 템플릿 서명 상태 조회 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 }

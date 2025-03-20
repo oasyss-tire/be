@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import com.inspection.enums.NotificationType;
 import com.inspection.util.EncryptionUtil;
 
@@ -26,8 +28,12 @@ public class ContractParticipant {
     private boolean signed;  // isSigned -> signed로 변경
     private LocalDateTime signedAt;         // 서명 일시
     
-    private String pdfId;                   // 참여자별 서명용 PDF ID
-    private String signedPdfId;             // 서명 완료된 PDF ID
+    private String pdfId;                   // 참여자별 서명용 PDF ID (첫 번째 템플릿의 PDF)
+    private String signedPdfId;             // 서명 완료된 PDF ID (첫 번째 템플릿의 PDF)
+    
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "participant_id")
+    private List<ParticipantTemplateMapping> templateMappings = new ArrayList<>();
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "contract_id")
@@ -35,6 +41,14 @@ public class ContractParticipant {
     
     @Transient  // DB에 저장되지 않는 필드
     private EncryptionUtil encryptionUtil;
+    
+    public void addTemplateMapping(ContractTemplateMapping contractTemplateMapping, String pdfId) {
+        ParticipantTemplateMapping mapping = new ParticipantTemplateMapping();
+        mapping.setContractTemplateMapping(contractTemplateMapping);
+        mapping.setPdfId(pdfId);
+        mapping.setSignedPdfId(null); // 초기값은 null
+        this.templateMappings.add(mapping);
+    }
     
     public String getDecryptedEmail() {
         return encryptionUtil.decrypt(this.email);

@@ -2,6 +2,7 @@ package com.inspection.service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -12,14 +13,19 @@ import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.CreateParticipantRequest;
 import com.inspection.dto.ParticipantDetailDTO;
 import com.inspection.entity.Contract;
+import com.inspection.entity.Company;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
+import com.inspection.entity.ContractTemplateMapping;
+import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ContractTemplateRepository;
+import com.inspection.repository.CompanyRepository;
 import com.inspection.util.EncryptionUtil;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -32,15 +38,23 @@ public class ContractService {
     private final ContractTemplateRepository templateRepository;
     private final ContractParticipantRepository participantRepository;
     private final ContractPdfFieldRepository contractPdfFieldRepository;
+    private final CompanyRepository companyRepository;
     private final PdfService pdfService;
     private final EncryptionUtil encryptionUtil;
     
     public Contract createContract(CreateContractRequest request) {
         log.info("Creating new contract: {}", request.getTitle());
         
-        // 1. 템플릿 조회
-        ContractTemplate template = templateRepository.findById(request.getTemplateId())
-            .orElseThrow(() -> new RuntimeException("Template not found: " + request.getTemplateId()));
+        if (request.getTemplateIds() == null || request.getTemplateIds().isEmpty()) {
+            throw new RuntimeException("At least one template must be selected");
+        }
+        
+        // 1. 회사 조회
+        Company company = null;
+        if (request.getCompanyId() != null) {
+            company = companyRepository.findById(request.getCompanyId())
+                .orElseThrow(() -> new RuntimeException("Company not found: " + request.getCompanyId()));
+        }
             
         // 2. Contract 엔티티 생성
         Contract contract = new Contract();
@@ -49,10 +63,9 @@ public class ContractService {
         contract.setStartDate(request.getStartDate());
         contract.setExpiryDate(request.getExpiryDate());
         contract.setDeadlineDate(request.getDeadlineDate());
-        contract.setTemplate(template);
+        contract.setCompany(company);
         contract.setCreatedBy(request.getCreatedBy());
         contract.setDepartment(request.getDepartment());
-        contract.setContractPdfId(template.getProcessedPdfId());
         
         // 3. 기본값 설정
         LocalDateTime now = LocalDateTime.now();
@@ -85,65 +98,113 @@ public class ContractService {
         // 계약번호 설정
         contract.setContractNumber(prefix + String.format("%03d", sequence));
         
-        // 4. 참여자 정보 설정
+        // 4. 템플릿 매핑 처리
+        List<ContractTemplate> templates = new ArrayList<>();
+        for (Long templateId : request.getTemplateIds()) {
+            ContractTemplate template = templateRepository.findById(templateId)
+                .orElseThrow(() -> new RuntimeException("Template not found: " + templateId));
+            templates.add(template);
+        }
+        
+        // 첫 번째 템플릿의 PDF ID를 대표 PDF로 설정
+        if (!templates.isEmpty()) {
+            contract.setContractPdfId(templates.get(0).getProcessedPdfId());
+        }
+        
+        // 템플릿 매핑 생성
+        for (int i = 0; i < templates.size(); i++) {
+            ContractTemplate template = templates.get(i);
+            contract.addTemplateMapping(template, i + 1, template.getProcessedPdfId());
+        }
+        
+        // 5. 참여자 정보 설정
         List<ContractParticipant> participants = request.getParticipants().stream()
             .map(participantRequest -> {
                 ContractParticipant participant = createParticipant(participantRequest, contract);
-                
-                try {
-                    // 4.1 참여자별 PDF ID 생성
-                    String participantPdfId = generateParticipantPdfId(
-                        template.getProcessedPdfId(), 
-                        participantRequest.getName()
-                    );
-                    
-                    // 4.2 템플릿 PDF 복사
-                    pdfService.copyTemplateForParticipant(
-                        template.getProcessedPdfId(), 
-                        participantPdfId
-                    );
-                    
-                    // 4.3 템플릿의 필드 정보 복사
-                    copyPdfFields(template.getOriginalPdfId(), participantPdfId, template);
-                    
-                    // 4.4 참여자에 PDF ID 설정
-                    participant.setPdfId(participantPdfId);
-                    log.info("Created participant PDF and fields: {} for {}", 
-                        participantPdfId, participant.getName());
-                    
-                } catch (Exception e) {
-                    log.error("Error creating PDF for participant: {}", participant.getName(), e);
-                    throw new RuntimeException("PDF 생성 중 오류가 발생했습니다.", e);
-                }
-                
                 return participant;
             })
             .collect(Collectors.toList());
         
-        participants.forEach(contract::addParticipant);
-        
-        // 5. 저장
+        // 임시 저장 - 참여자에 계약 참조 설정을 위해
         Contract savedContract = contractRepository.save(contract);
-        log.info("Contract created successfully: {}, contractNumber: {}", 
-            savedContract.getId(), savedContract.getContractNumber());
         
-        return savedContract;
+        // 각 참여자별로 각 템플릿에 대한 PDF 생성
+        for (ContractParticipant participant : participants) {
+            contract.addParticipant(participant);
+            
+            // 각 템플릿에 대해 참여자별 PDF 생성
+            for (ContractTemplateMapping templateMapping : contract.getTemplateMappings()) {
+                try {
+                    // 참여자별 PDF ID 생성
+                    String participantPdfId = generateParticipantPdfId(
+                        templateMapping.getProcessedPdfId(), 
+                        participant.getName()
+                    );
+                    
+                    // 템플릿 PDF 복사
+                    pdfService.copyTemplateForParticipant(
+                        templateMapping.getProcessedPdfId(), 
+                        participantPdfId
+                    );
+                    
+                    // 템플릿의 필드 정보 복사
+                    copyPdfFields(templateMapping.getTemplate().getOriginalPdfId(), 
+                                 participantPdfId, templateMapping.getTemplate());
+                    
+                    // 첫 번째 템플릿의 PDF는 대표 PDF로 설정
+                    if (templateMapping.getSortOrder() == 1) {
+                        participant.setPdfId(participantPdfId);
+                    }
+                    
+                    // 참여자-템플릿 매핑 생성
+                    participant.addTemplateMapping(templateMapping, participantPdfId);
+                    
+                    log.info("Created participant PDF and fields: {} for {} (Template: {})", 
+                        participantPdfId, participant.getName(), templateMapping.getTemplate().getTemplateName());
+                    
+                } catch (Exception e) {
+                    log.error("Error creating PDF for participant: {} (Template: {})", 
+                        participant.getName(), templateMapping.getTemplate().getTemplateName(), e);
+                    throw new RuntimeException("PDF 생성 중 오류가 발생했습니다.", e);
+                }
+            }
+        }
+        
+        // 6. 최종 저장
+        Contract finalContract = contractRepository.save(contract);
+        log.info("Contract created successfully: {}, contractNumber: {}", 
+            finalContract.getId(), finalContract.getContractNumber());
+        
+        return finalContract;
     }
-    
 
-    // 계약 조회
     @Transactional(readOnly = true)
     public Contract getContract(Long contractId) {
-        return contractRepository.findById(contractId)
-            .orElseThrow(() -> new RuntimeException("Contract not found: " + contractId));
+        try {
+            return contractRepository.findById(contractId)
+                .orElseThrow(() -> new RuntimeException("Contract not found: " + contractId));
+        } catch (EntityNotFoundException e) {
+            log.warn("EntityNotFoundException occurred while fetching contract {}: {}", contractId, e.getMessage());
+            throw new RuntimeException("계약을 조회할 수 없습니다. company_id가 설정되지 않았습니다: " + contractId);
+        }
     }
     
     @Transactional(readOnly = true)
     public List<Contract> getActiveContracts() {
-        return contractRepository.findByActiveTrueOrderByCreatedAtDesc();
+        try {
+            return contractRepository.findByActiveTrueOrderByCreatedAtDesc();
+        } catch (EntityNotFoundException e) {
+            log.warn("EntityNotFoundException occurred while fetching active contracts: {}", e.getMessage());
+            // 회사 ID가 없는 계약은 제외하고 조회
+            List<Contract> contracts = contractRepository.findAll().stream()
+                .filter(Contract::isActive)
+                .filter(contract -> contract.getCompany() != null)
+                .sorted((c1, c2) -> c2.getCreatedAt().compareTo(c1.getCreatedAt()))
+                .collect(Collectors.toList());
+            return contracts;
+        }
     }
     
-
     public void deactivateContract(Long contractId, String reason) {
         Contract contract = getContract(contractId);
         contract.setActive(false);
@@ -174,18 +235,12 @@ public class ContractService {
         ContractParticipant participant = participantRepository.findByContractIdAndId(contractId, participantId)
             .orElseThrow(() -> new RuntimeException("Participant not found"));
             
-        // DTO 생성 시 복호화된 값 전달
-        return new ParticipantDetailDTO(
-            participant.getId(),
-            participant.getName(),
-            encryptionUtil.decrypt(participant.getEmail()),        // 이메일 복호화
-            encryptionUtil.decrypt(participant.getPhoneNumber()),  // 전화번호 복호화
-            participant.getNotifyType(),
-            participant.isSigned(),
-            participant.getSignedAt(),
-            participant.getPdfId(),
-            participant.getSignedPdfId()
-        );
+        // 복호화된 값 가져오기
+        String decryptedEmail = encryptionUtil.decrypt(participant.getEmail());
+        String decryptedPhone = encryptionUtil.decrypt(participant.getPhoneNumber());
+        
+        // 새로운 생성자 사용
+        return new ParticipantDetailDTO(participant, decryptedEmail, decryptedPhone);
     }
     
     public void completeParticipantSign(Long contractId, Long participantId) {

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import com.inspection.entity.Contract;
+import com.inspection.entity.ContractTemplateMapping;
 import com.inspection.util.EncryptionUtil;
 
 import lombok.Getter;
@@ -24,8 +25,15 @@ public class ContractDTO {
     private String department;
     private String contractNumber;
     private boolean active;
-    private Long templateId;
-    private String templateName;
+    
+    // 단일 템플릿 정보 대신 다중 템플릿 정보
+    // private Long templateId;
+    // private String templateName;
+    private List<TemplateInfoDTO> templates;
+    
+    private Long companyId;
+    private String companyName;
+    private String storeCode;
     private List<ParticipantDTO> participants;
 
     public ContractDTO(Contract contract, EncryptionUtil encryptionUtil) {
@@ -42,13 +50,36 @@ public class ContractDTO {
         this.contractNumber = contract.getContractNumber();
         this.active = contract.isActive();
         
-        if (contract.getTemplate() != null) {
-            this.templateId = contract.getTemplate().getId();
-            this.templateName = contract.getTemplate().getTemplateName();
+        // 템플릿 정보 변환
+        this.templates = contract.getTemplateMappings().stream()
+            .map(mapping -> new TemplateInfoDTO(mapping))
+            .collect(Collectors.toList());
+        
+        if (contract.getCompany() != null) {
+            this.companyId = contract.getCompany().getId();
+            this.companyName = contract.getCompany().getStoreName();
+            this.storeCode = contract.getCompany().getStoreCode();
         }
         
         this.participants = contract.getParticipants().stream()
             .map(participant -> new ParticipantDTO(participant, encryptionUtil))
             .collect(Collectors.toList());
+    }
+    
+    @Getter @Setter
+    public static class TemplateInfoDTO {
+        private Long id;              // 매핑 ID
+        private Long templateId;      // 템플릿 ID
+        private String templateName;  // 템플릿 이름
+        private String processedPdfId; // 처리된 PDF ID
+        private Integer sortOrder;     // 정렬 순서
+        
+        public TemplateInfoDTO(ContractTemplateMapping mapping) {
+            this.id = mapping.getId();
+            this.templateId = mapping.getTemplate().getId();
+            this.templateName = mapping.getTemplate().getTemplateName();
+            this.processedPdfId = mapping.getProcessedPdfId();
+            this.sortOrder = mapping.getSortOrder();
+        }
     }
 } 
