@@ -1,26 +1,32 @@
 package com.inspection.service;
 
-import com.inspection.entity.ContractPdfField;
-import org.apache.pdfbox.pdmodel.*;
-import org.apache.pdfbox.pdmodel.interactive.annotation.*;
-import org.apache.pdfbox.pdmodel.common.*;
-import org.apache.pdfbox.pdmodel.graphics.color.PDColor;
-import org.apache.pdfbox.pdmodel.graphics.color.PDDeviceRGB;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import java.io.IOException;
 import java.io.ByteArrayOutputStream;
-import java.util.List;
-import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationSquareCircle;
-import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import java.util.Base64;
-import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+
+import org.apache.commons.io.IOUtils;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.graphics.color.PDColor;
+import org.apache.pdfbox.pdmodel.graphics.color.PDDeviceRGB;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState;
 import org.apache.pdfbox.pdmodel.graphics.state.RenderingMode;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationSquareCircle;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDBorderStyleDictionary;
+import org.springframework.stereotype.Service;
+
+import com.inspection.entity.ContractPdfField;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -210,6 +216,130 @@ public class PdfProcessingService {
                             }
                         }
                     }
+                }
+            }
+            
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        }
+    }
+    
+    /**
+     * PDF 문서의 모든 페이지 하단에 서명 시간을 추가합니다.
+     * 
+     * @param pdf 원본 PDF 바이트 배열
+     * @param timeText 추가할 시간 텍스트
+     * @return 시간이 추가된 PDF 바이트 배열
+     * @throws IOException PDF 처리 중 오류 발생 시
+     */
+    public byte[] addSignatureTimeToPdf(byte[] pdf, String timeText) throws IOException {
+        try (PDDocument document = PDDocument.load(pdf)) {
+            // 폰트 준비
+            PDType0Font nanumGothic = null;
+            InputStream fontStream = null;
+            
+            try {
+                fontStream = getClass().getResourceAsStream("/fonts/nanum-gothic/NanumGothic.ttf");
+                nanumGothic = PDType0Font.load(document, fontStream);
+            } catch (IOException e) {
+                log.error("나눔고딕 폰트 로드 실패: {}", e.getMessage());
+            }
+            
+            // 모든 페이지에 서명 시간 추가
+            for (int i = 0; i < document.getNumberOfPages(); i++) {
+                PDPage page = document.getPage(i);
+                
+                try (PDPageContentStream contentStream = new PDPageContentStream(
+                        document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    
+                    if (nanumGothic != null) {
+                        // 나눔고딕 폰트 사용
+                        contentStream.beginText();
+                        contentStream.setFont(nanumGothic, 10);
+                        contentStream.setNonStrokingColor(0, 0, 0);
+                        
+                        // 텍스트 위치 설정 (페이지 하단 중앙)
+                        float textWidth = nanumGothic.getStringWidth(timeText) / 1000 * 10;
+                        float centerX = (PDF_WIDTH - textWidth) / 2;
+                        float bottomY = 20; // 페이지 하단에서 20 픽셀 위
+                        
+                        contentStream.newLineAtOffset(centerX, bottomY);
+                        contentStream.showText(timeText);
+                        contentStream.endText();
+                    } else {
+                        // 기본 폰트로 폴백
+                        contentStream.beginText();
+                        contentStream.setFont(PDType1Font.HELVETICA, 10);
+                        contentStream.setNonStrokingColor(0, 0, 0);
+                        
+                        // 텍스트 위치 설정 (페이지 하단 중앙)
+                        float textWidth = PDType1Font.HELVETICA.getStringWidth(timeText) / 1000 * 10;
+                        float centerX = (PDF_WIDTH - textWidth) / 2;
+                        float bottomY = 20; // 페이지 하단에서 20 픽셀 위
+                        
+                        contentStream.newLineAtOffset(centerX, bottomY);
+                        contentStream.showText(timeText);
+                        contentStream.endText();
+                    }
+                }
+            }
+            
+            // 폰트 스트림 닫기
+            if (fontStream != null) {
+                fontStream.close();
+            }
+            
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        }
+    }
+    
+    /**
+     * PDF 문서의 모든 페이지에 로고 워터마크를 추가합니다.
+     * 
+     * @param pdf 원본 PDF 바이트 배열
+     * @param logoPath 로고 이미지 경로
+     * @return 워터마크가 추가된 PDF 바이트 배열
+     * @throws IOException PDF 처리 중 오류 발생 시
+     */
+    public byte[] addLogoWatermark(byte[] pdf, String logoPath) throws IOException {
+        try (PDDocument document = PDDocument.load(pdf)) {
+            // 로고 이미지 로드
+            InputStream logoStream = getClass().getResourceAsStream(logoPath);
+            if (logoStream == null) {
+                log.error("로고 이미지를 찾을 수 없습니다: {}", logoPath);
+                return pdf; // 이미지가 없으면 원본 PDF 반환
+            }
+            
+            byte[] logoBytes = IOUtils.toByteArray(logoStream);
+            logoStream.close(); // 스트림 사용 후 닫기
+            
+            PDImageXObject logoImage = PDImageXObject.createFromByteArray(document, logoBytes, "logo");
+            
+            // 모든 페이지에 워터마크 추가
+            for (int i = 0; i < document.getNumberOfPages(); i++) {
+                PDPage page = document.getPage(i);
+                
+                try (PDPageContentStream contentStream = new PDPageContentStream(
+                        document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                    
+                    // 워터마크 투명도 설정
+                    PDExtendedGraphicsState gs = new PDExtendedGraphicsState();
+                    gs.setNonStrokingAlphaConstant(0.2f); // 20% 불투명도
+                    contentStream.setGraphicsStateParameters(gs);
+                    
+                    // 이미지 크기 계산 (페이지 중앙에 위치, 적절한 크기로)
+                    float imageWidth = 200; // 로고 너비
+                    float imageHeight = imageWidth * logoImage.getHeight() / logoImage.getWidth(); // 비율 유지
+                    
+                    // 페이지 중앙 좌표
+                    float centerX = (PDF_WIDTH - imageWidth) / 2;
+                    float centerY = (PDF_HEIGHT - imageHeight) / 2;
+                    
+                    // 이미지 그리기
+                    contentStream.drawImage(logoImage, centerX, centerY, imageWidth, imageHeight);
                 }
             }
             

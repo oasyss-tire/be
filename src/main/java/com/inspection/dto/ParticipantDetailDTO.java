@@ -27,6 +27,17 @@ public class ParticipantDetailDTO {
     private String pdfId;
     private String signedPdfId;
     
+    // 승인 관련 필드 추가
+    private boolean approved;
+    private LocalDateTime approvedAt;
+    private String approvalComment;
+    private String rejectionReason;
+    
+    // 상태 코드 정보 추가
+    private String statusCodeId;
+    private String statusName;
+    private java.util.Map<String, String> statusAttributes;
+    
     // 템플릿별 PDF 정보
     private List<TemplatePdfInfo> templatePdfs;
     
@@ -43,6 +54,11 @@ public class ParticipantDetailDTO {
         this.signedAt = signedAt;
         this.pdfId = pdfId;
         this.signedPdfId = signedPdfId;
+        // 승인 관련 필드는 기본값으로 설정 (생성자에서 전달되지 않음)
+        this.approved = false;
+        this.approvedAt = null;
+        this.approvalComment = null;
+        this.rejectionReason = null;
     }
     
     // 새로운 생성자 추가
@@ -56,6 +72,26 @@ public class ParticipantDetailDTO {
         this.signedAt = participant.getSignedAt();
         this.pdfId = participant.getPdfId();
         this.signedPdfId = participant.getSignedPdfId();
+        
+        // 승인 관련 필드 설정
+        this.approved = participant.isApproved();
+        this.approvedAt = participant.getApprovedAt();
+        this.approvalComment = participant.getApprovalComment();
+        this.rejectionReason = participant.getRejectionReason();
+        
+        // 상태 코드 정보 설정
+        if (participant.getStatusCode() != null) {
+            this.statusCodeId = participant.getStatusCode().getCodeId();
+            this.statusName = participant.getStatusCode().getCodeName();
+            
+            // 상태 코드 속성 설정
+            if (participant.getStatusCode().getAttributes() != null 
+                && !participant.getStatusCode().getAttributes().isEmpty()) {
+                this.statusAttributes = new java.util.HashMap<>();
+                participant.getStatusCode().getAttributes().forEach(attr -> 
+                    this.statusAttributes.put(attr.getAttributeKey(), attr.getAttributeValue()));
+            }
+        }
         
         // 템플릿별 PDF 정보 설정
         if (participant.getTemplateMappings() != null && !participant.getTemplateMappings().isEmpty()) {

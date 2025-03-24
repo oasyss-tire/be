@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -241,6 +242,177 @@ public class ContractController {
         } catch (Exception e) {
             log.error("모든 참여자 템플릿 서명 상태 조회 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    /**
+     * 계약 상태 변경 API
+     */
+    @PutMapping("/{contractId}/status")
+    public ResponseEntity<?> updateContractStatus(
+        @PathVariable Long contractId,
+        @RequestParam String statusCodeId,
+        @RequestParam(required = false) String updatedBy
+    ) {
+        try {
+            log.info("Contract status update request: contractId={}, statusCodeId={}, updatedBy={}", 
+                contractId, statusCodeId, updatedBy);
+                
+            Contract contract = contractService.updateContractStatus(contractId, statusCodeId, updatedBy);
+            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
+        } catch (Exception e) {
+            log.error("Error updating contract status", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("계약 상태 변경 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * 계약 승인 API
+     */
+    @PostMapping("/{contractId}/approve")
+    public ResponseEntity<?> approveContract(
+        @PathVariable Long contractId,
+        @RequestParam String approver
+    ) {
+        try {
+            log.info("Contract approval request: contractId={}, approver={}", contractId, approver);
+                
+            Contract contract = contractService.approveContract(contractId, approver);
+            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
+        } catch (IllegalStateException e) {
+            log.warn("Invalid contract state for approval: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error approving contract", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("계약 승인 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * 계약 반려 API (수정 요청)
+     */
+    @PostMapping("/{contractId}/reject")
+    public ResponseEntity<?> rejectContract(
+        @PathVariable Long contractId,
+        @RequestParam String rejectionReason,
+        @RequestParam String rejector
+    ) {
+        try {
+            log.info("Contract rejection request: contractId={}, rejector={}", contractId, rejector);
+                
+            Contract contract = contractService.rejectContract(contractId, rejectionReason, rejector);
+            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
+        } catch (IllegalStateException e) {
+            log.warn("Invalid contract state for rejection: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error rejecting contract", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("계약 반려 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * 계약 반려 후 재서명 요청 API
+     */
+    @PostMapping("/{contractId}/resend")
+    public ResponseEntity<?> resendContractForReSign(
+        @PathVariable Long contractId,
+        @RequestParam String reason,
+        @RequestParam String rejector
+    ) {
+        try {
+            log.info("Contract resend request: contractId={}, rejector={}", contractId, rejector);
+                
+            Contract contract = contractService.resendContractForReSign(contractId, reason, rejector);
+            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
+        } catch (IllegalStateException e) {
+            log.warn("Invalid contract state for resend: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error resending contract", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("계약 재전송 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * 참여자 승인 API
+     */
+    @PostMapping("/{contractId}/participants/{participantId}/approve")
+    public ResponseEntity<?> approveByParticipant(
+        @PathVariable Long contractId,
+        @PathVariable Long participantId,
+        @RequestParam(required = false) String comment
+    ) {
+        try {
+            log.info("Participant approval request: contractId={}, participantId={}", contractId, participantId);
+                
+            ContractParticipant participant = contractService.approveByParticipant(contractId, participantId, comment);
+            return ResponseEntity.ok().build();
+        } catch (IllegalStateException e) {
+            log.warn("Invalid state for participant approval: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error approving by participant", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("참여자 승인 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * 참여자 거부 API
+     */
+    @PostMapping("/{contractId}/participants/{participantId}/reject")
+    public ResponseEntity<?> rejectByParticipant(
+        @PathVariable Long contractId,
+        @PathVariable Long participantId,
+        @RequestParam String reason
+    ) {
+        try {
+            log.info("Participant rejection request: contractId={}, participantId={}", contractId, participantId);
+                
+            ContractParticipant participant = contractService.rejectByParticipant(contractId, participantId, reason);
+            return ResponseEntity.ok().build();
+        } catch (IllegalStateException e) {
+            log.warn("Invalid state for participant rejection: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error rejecting by participant", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("참여자 거부 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * 참여자 서명 시작 API
+     * 참여자가 서명 페이지에 접근할 때 호출됩니다.
+     */
+    @PostMapping("/{contractId}/participants/{participantId}/start-signing")
+    public ResponseEntity<?> startParticipantSigning(
+        @PathVariable Long contractId,
+        @PathVariable Long participantId
+    ) {
+        try {
+            log.info("Start participant signing: contractId={}, participantId={}", contractId, participantId);
+                
+            ContractParticipant participant = contractService.startParticipantSigning(contractId, participantId);
+            return ResponseEntity.ok().build();
+        } catch (IllegalStateException e) {
+            log.warn("Invalid state for starting signing: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error starting participant signing", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("서명 시작 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
 }

@@ -12,19 +12,21 @@ import org.springframework.transaction.annotation.Transactional;
 import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.CreateParticipantRequest;
 import com.inspection.dto.ParticipantDetailDTO;
-import com.inspection.entity.Contract;
+import com.inspection.entity.Code;
 import com.inspection.entity.Company;
+import com.inspection.entity.Contract;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractTemplateMapping;
-import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.repository.CodeRepository;
+import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ContractTemplateRepository;
-import com.inspection.repository.CompanyRepository;
 import com.inspection.util.EncryptionUtil;
+
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +43,20 @@ public class ContractService {
     private final CompanyRepository companyRepository;
     private final PdfService pdfService;
     private final EncryptionUtil encryptionUtil;
+    private final CodeRepository codeRepository;
+    
+    // 계약 상태 코드 상수 정의 (기존 코드 체계에 맞게 수정)
+    private static final String CONTRACT_STATUS_TEMP = "001002_0003";      // 임시저장
+    private static final String CONTRACT_STATUS_SIGNING = "001002_0004";   // 서명 진행중
+    private static final String CONTRACT_STATUS_WAITING = "001002_0001";   // 승인대기
+    private static final String CONTRACT_STATUS_COMPLETED = "001002_0002"; // 계약완료
+    
+    // 참여자 상태 코드 상수 정의
+    private static final String PARTICIPANT_STATUS_WAITING = "008001_0003";  // 서명 대기
+    private static final String PARTICIPANT_STATUS_SIGNING = "008001_0004";  // 서명 중
+    private static final String PARTICIPANT_STATUS_APPROVAL_WAITING = "008001_0001";  // 승인 대기
+    private static final String PARTICIPANT_STATUS_APPROVED = "008001_0002";  // 승인 완료
+    private static final String PARTICIPANT_STATUS_REJECTED = "008001_0005";  // 승인 거부
     
     public Contract createContract(CreateContractRequest request) {
         log.info("Creating new contract: {}", request.getTitle());
@@ -72,6 +88,11 @@ public class ContractService {
         contract.setCreatedAt(now);
         contract.setActive(true);
         contract.setProgressRate(0);
+        
+        // 계약 초기 상태 설정 - 임시저장(TEMP) 상태로 설정
+        Code tempStatus = codeRepository.findById(CONTRACT_STATUS_TEMP)
+            .orElseThrow(() -> new RuntimeException("Contract status code not found: " + CONTRACT_STATUS_TEMP));
+        contract.setStatusCode(tempStatus);
         
         // 계약번호 생성 및 설정
         String prefix = String.format("CT-%d-%02d%02d-", 
@@ -120,7 +141,7 @@ public class ContractService {
         // 5. 참여자 정보 설정
         List<ContractParticipant> participants = request.getParticipants().stream()
             .map(participantRequest -> {
-                ContractParticipant participant = createParticipant(participantRequest, contract);
+                ContractParticipant participant = createParticipant(contract, participantRequest);
                 return participant;
             })
             .collect(Collectors.toList());
@@ -214,13 +235,24 @@ public class ContractService {
         log.info("Contract deactivated: {}", contractId);
     }
     
-    private ContractParticipant createParticipant(CreateParticipantRequest request, Contract contract) {
+    private ContractParticipant createParticipant(Contract contract, CreateParticipantRequest participantRequest) {
         ContractParticipant participant = new ContractParticipant();
-        participant.setName(request.getName());
-        participant.setEmail(encryptionUtil.encrypt(request.getEmail()));
-        participant.setPhoneNumber(encryptionUtil.encrypt(request.getPhoneNumber()));
-        participant.setNotifyType(request.getNotifyType());
+        participant.setName(participantRequest.getName());
+        
+        // 이메일, 전화번호 암호화
+        participant.setEmail(encryptionUtil.encrypt(participantRequest.getEmail()));
+        participant.setPhoneNumber(encryptionUtil.encrypt(participantRequest.getPhoneNumber()));
+        
+        participant.setNotifyType(participantRequest.getNotifyType());
+        participant.setContract(contract);
         participant.setSigned(false);
+        participant.setSignedAt(null);
+        
+        // 참여자 초기 상태 설정 - 서명 대기
+        Code initialStatus = codeRepository.findById(PARTICIPANT_STATUS_WAITING)
+            .orElseThrow(() -> new EntityNotFoundException("서명 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_WAITING));
+        participant.setStatusCode(initialStatus);
+        
         return participant;
     }
     
@@ -243,19 +275,41 @@ public class ContractService {
         return new ParticipantDetailDTO(participant, decryptedEmail, decryptedPhone);
     }
     
+    @Transactional
     public void completeParticipantSign(Long contractId, Long participantId) {
-        ContractParticipant participant = participantRepository.findByContractIdAndId(contractId, participantId)
-            .orElseThrow(() -> new RuntimeException("Participant not found"));
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
         
+        // 참여자가 해당 계약에 속하는지 확인
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 이미 서명한 경우
+        if (participant.isSigned()) {
+            return;
+        }
+        
+        // 서명 완료 처리
         participant.setSigned(true);
         participant.setSignedAt(LocalDateTime.now());
         
-        // 계약 진행률 업데이트
-        Contract contract = participant.getContract();
+        // 상태 코드를 '승인 대기'로 변경
+        Code approvalWaitingStatus = codeRepository.findById(PARTICIPANT_STATUS_APPROVAL_WAITING)
+            .orElseThrow(() -> new EntityNotFoundException("승인 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_APPROVAL_WAITING));
+        participant.setStatusCode(approvalWaitingStatus);
+        
+        // 계약 진행률 계산 및 업데이트
         contract.calculateProgressRate();
         
         participantRepository.save(participant);
-        log.info("Participant sign completed: {}", participantId);
+        contractRepository.save(contract);  // 변경된 진행률 저장
+        
+        // 모든 참여자가 서명을 완료했는지 확인하고, 완료되었다면 계약 상태를 '승인대기'로 변경
+        checkAllParticipantsSigned(contract);
     }
     
     /**
@@ -310,5 +364,398 @@ public class ContractService {
         }
         
         return false;
+    }
+
+    /**
+     * 계약 상태 변경
+     */
+    @Transactional
+    public Contract updateContractStatus(Long contractId, String statusCodeId, String updatedBy) {
+        Contract contract = getContract(contractId);
+        
+        Code statusCode = codeRepository.findById(statusCodeId)
+            .orElseThrow(() -> new RuntimeException("Status code not found: " + statusCodeId));
+        
+        contract.setStatusCode(statusCode);
+        contract.setLastModifiedAt(LocalDateTime.now());
+        
+        // 상태별 추가 동작
+        if (CONTRACT_STATUS_COMPLETED.equals(statusCodeId)) {
+            contract.setApprovedBy(updatedBy);
+            contract.setApprovedAt(LocalDateTime.now());
+            contract.setCompletedAt(LocalDateTime.now());
+        }
+        
+        return contractRepository.save(contract);
+    }
+    
+    /**
+     * 계약 승인
+     */
+    @Transactional
+    public Contract approveContract(Long contractId, String approver) {
+        Contract contract = getContract(contractId);
+        
+        // 승인 가능한 상태인지 확인 (승인대기 상태)
+        if (contract.getStatusCode() == null || 
+            !CONTRACT_STATUS_WAITING.equals(contract.getStatusCode().getCodeId())) {
+            throw new IllegalStateException("승인대기 상태가 아닌 계약은 승인할 수 없습니다.");
+        }
+        
+        // 계약완료 상태로 변경
+        Code completedStatus = codeRepository.findById(CONTRACT_STATUS_COMPLETED)
+            .orElseThrow(() -> new RuntimeException("Status code not found: " + CONTRACT_STATUS_COMPLETED));
+        
+        contract.setStatusCode(completedStatus);
+        contract.setApprovedBy(approver);
+        contract.setApprovedAt(LocalDateTime.now());
+        contract.setCompletedAt(LocalDateTime.now());
+        contract.setLastModifiedAt(LocalDateTime.now());
+        
+        return contractRepository.save(contract);
+    }
+    
+    /**
+     * 계약 반려 (수정 요청)
+     */
+    @Transactional
+    public Contract rejectContract(Long contractId, String rejectionReason, String rejector) {
+        Contract contract = getContract(contractId);
+        
+        // 반려 가능한 상태인지 확인
+        if (contract.getStatusCode() == null || 
+            !CONTRACT_STATUS_WAITING.equals(contract.getStatusCode().getCodeId())) {
+            throw new IllegalStateException("승인대기 상태가 아닌 계약은 반려할 수 없습니다.");
+        }
+        
+        // 서명 진행중 상태로 변경 (재서명을 위해)
+        Code signingStatus = codeRepository.findById(CONTRACT_STATUS_SIGNING)
+            .orElseThrow(() -> new RuntimeException("Status code not found: " + CONTRACT_STATUS_SIGNING));
+        
+        contract.setStatusCode(signingStatus);
+        contract.setRejectionReason(rejectionReason);
+        contract.setLastModifiedAt(LocalDateTime.now());
+        
+        // 모든 참여자의 서명 상태 초기화 (재서명 필요)
+        // 현재 계약의 참여자들만 초기화
+        for (ContractParticipant participant : contract.getParticipants()) {
+            participant.setSigned(false);
+            participant.setSignedAt(null);
+            
+            // 승인 관련 상태 초기화
+            participant.setApproved(false);
+            participant.setApprovedAt(null);
+            participant.setApprovalComment(null);
+            
+            // 참여자 상태 코드 변경
+            try {
+                Code waitingStatus = codeRepository.findById(PARTICIPANT_STATUS_WAITING)
+                    .orElseThrow(() -> new EntityNotFoundException("서명 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_WAITING));
+                participant.setStatusCode(waitingStatus);
+            } catch (Exception e) {
+                log.error("참여자 상태 초기화 중 오류 발생", e);
+            }
+            
+            // 템플릿 매핑 상태 초기화
+            if (participant.getTemplateMappings() != null) {
+                for (var templateMapping : participant.getTemplateMappings()) {
+                    templateMapping.setSigned(false);
+                    templateMapping.setSignedAt(null);
+                    templateMapping.setSignedPdfId(null);
+                }
+            }
+            
+            participantRepository.save(participant);
+            log.info("참여자 상태 초기화 (반려): 계약ID={}, 참여자ID={}", contractId, participant.getId());
+        }
+        
+        // 서명 진행률 재계산
+        contract.calculateProgressRate();
+        
+        return contractRepository.save(contract);
+    }
+
+    /**
+     * 계약을 다시 서명할 수 있도록 재전송합니다.
+     */
+    @Transactional
+    public Contract resendContractForReSign(Long contractId, String reason, String rejector) {
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+        
+        // 상태 검증 - 승인 대기 상태인 경우에만 거부 가능
+        if (!contract.getStatusCode().getCodeId().equals(CONTRACT_STATUS_WAITING)) {
+            throw new IllegalStateException("승인 대기 상태의 계약만 재전송할 수 있습니다.");
+        }
+        
+        // 계약을 반려 상태로 변경 (rejectContract 내에서 이미 서명 상태 초기화 처리됨)
+        contract = rejectContract(contractId, reason, rejector);
+        
+        // TODO: 여기서 모든 참여자에게 이메일이나 SMS로 재서명 알림을 보내야 함
+        log.info("재서명 요청 알림 필요: 계약 ID={}", contractId);
+        
+        return contract;
+    }
+    
+    /**
+     * 관리자가 참여자의 서명을 승인합니다.
+     */
+    @Transactional
+    public ContractParticipant approveByParticipant(Long contractId, Long participantId, String comment) {
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+        
+        // 참여자가 해당 계약에 속하는지 확인
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 서명이 완료된 상태에서만 승인 가능
+        if (!participant.isSigned()) {
+            throw new IllegalStateException("서명이 완료되지 않은 상태에서는 승인할 수 없습니다.");
+        }
+        
+        // 상태 확인 - 승인 대기 상태인지 확인
+        if (participant.getStatusCode() == null || 
+            !PARTICIPANT_STATUS_APPROVAL_WAITING.equals(participant.getStatusCode().getCodeId())) {
+            throw new IllegalStateException("승인 대기 상태의 참여자만 승인할 수 있습니다.");
+        }
+        
+        // 승인 처리
+        participant.setApproved(true);
+        participant.setApprovedAt(LocalDateTime.now());
+        participant.setApprovalComment(comment);
+        
+        // 상태를 '승인 완료'로 변경
+        Code approvedStatus = codeRepository.findById(PARTICIPANT_STATUS_APPROVED)
+            .orElseThrow(() -> new EntityNotFoundException("승인 완료 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_APPROVED));
+        participant.setStatusCode(approvedStatus);
+        
+        // 승인된 참여자 저장
+        participantRepository.save(participant);
+        
+        // 모든 참여자가 승인했는지 확인하고 계약 상태 업데이트
+        checkAllParticipantsApproved(contract);
+        
+        return participant;
+    }
+    
+    /**
+     * 관리자가 참여자의 서명을 거부합니다.
+     */
+    @Transactional
+    public ContractParticipant rejectByParticipant(Long contractId, Long participantId, String reason) {
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+        
+        // 참여자가 해당 계약에 속하는지 확인
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 서명이 완료된 상태에서만 거부 가능
+        if (!participant.isSigned()) {
+            throw new IllegalStateException("서명이 완료되지 않은 상태에서는 거부할 수 없습니다.");
+        }
+        
+        // 상태 확인 - 승인 대기 상태인지 확인
+        if (participant.getStatusCode() == null || 
+            !PARTICIPANT_STATUS_APPROVAL_WAITING.equals(participant.getStatusCode().getCodeId())) {
+            throw new IllegalStateException("승인 대기 상태의 참여자만 거부할 수 있습니다.");
+        }
+        
+        log.info("참여자 서명 거부 처리 시작: 계약ID={}, 참여자ID={}", contractId, participantId);
+        
+        // 거부 처리 - 해당 참여자만 초기화
+        participant.setSigned(false);
+        participant.setSignedAt(null);
+        participant.setApproved(false);
+        participant.setApprovedAt(null);
+        participant.setApprovalComment(null);
+        participant.setRejectionReason(reason);
+        
+        // 상태를 '서명 대기'로 변경
+        try {
+            Code waitingStatus = codeRepository.findById(PARTICIPANT_STATUS_WAITING)
+                .orElseThrow(() -> new EntityNotFoundException("서명 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_WAITING));
+            participant.setStatusCode(waitingStatus);
+        } catch (Exception e) {
+            log.error("참여자 상태 초기화 중 오류 발생", e);
+        }
+        
+        // 해당 참여자의 템플릿 매핑 상태도 초기화
+        if (participant.getTemplateMappings() != null) {
+            for (var templateMapping : participant.getTemplateMappings()) {
+                templateMapping.setSigned(false);
+                templateMapping.setSignedAt(null);
+                templateMapping.setSignedPdfId(null);
+            }
+        }
+        
+        // 계약 상태를 서명 진행중으로 변경 (재서명 필요)
+        updateContractStatus(contractId, CONTRACT_STATUS_SIGNING, "System");
+        
+        // 거부된 참여자 저장
+        participantRepository.save(participant);
+        log.info("참여자 서명 거부 완료: 계약ID={}, 참여자ID={}", contractId, participantId);
+        
+        // 계약 진행률 다시 계산
+        contract.calculateProgressRate();
+        contractRepository.save(contract);
+        
+        return participant;
+    }
+    
+    /**
+     * 모든 참여자가 승인했는지 확인하고 계약 상태 업데이트
+     */
+    private void checkAllParticipantsApproved(Contract contract) {
+        boolean allApproved = contract.getParticipants().stream()
+            .allMatch(p -> p.isApproved() || 
+                (p.getStatusCode() != null && PARTICIPANT_STATUS_APPROVED.equals(p.getStatusCode().getCodeId())));
+        
+        if (allApproved) {
+            // 모든 참여자가 승인한 경우 계약 완료 상태로 변경
+            updateContractStatus(contract.getId(), CONTRACT_STATUS_COMPLETED, "System");
+            
+            // 계약 완료 시간 기록
+            contract.setApprovedAt(LocalDateTime.now());
+            contract.setApprovedBy("시스템 자동 승인 (모든 참여자 승인 완료)");
+            
+            contractRepository.save(contract);
+            log.info("모든 참여자 승인 완료: 계약ID={}, 상태='계약완료'", contract.getId());
+        }
+    }
+    
+    /**
+     * 특정 계약에 속한 참여자들의 서명 및 승인 상태를 초기화 (지정된 참여자 제외)
+     * 이 메서드는 계약 전체를 거부했을 때 사용됩니다.
+     * 개별 참여자의 서명만 거부할 경우에는 해당 참여자만 초기화합니다.
+     */
+    private void resetAllParticipantsStatusExcept(Contract contract, Long excludedParticipantId) {
+        // 현재 계약의 참여자들만 처리 (다른 계약의 참여자는 건드리지 않음)
+        for (ContractParticipant participant : contract.getParticipants()) {
+            // 거부한 참여자는 초기화하지 않음
+            if (participant.getId().equals(excludedParticipantId)) {
+                continue;
+            }
+            
+            participant.setSigned(false);
+            participant.setSignedAt(null);
+            participant.setApproved(false);
+            participant.setApprovedAt(null);
+            participant.setApprovalComment(null);
+            participant.setRejectionReason(null);
+            
+            // 상태를 '서명 대기'로 변경
+            try {
+                Code waitingStatus = codeRepository.findById(PARTICIPANT_STATUS_WAITING)
+                    .orElseThrow(() -> new EntityNotFoundException("서명 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_WAITING));
+                participant.setStatusCode(waitingStatus);
+            } catch (Exception e) {
+                log.error("참여자 상태 초기화 중 오류 발생", e);
+            }
+            
+            // 해당 참여자의 각 템플릿 매핑에 대한 서명 상태도 초기화
+            if (participant.getTemplateMappings() != null) {
+                for (var templateMapping : participant.getTemplateMappings()) {
+                    templateMapping.setSigned(false);
+                    templateMapping.setSignedAt(null);
+                    templateMapping.setSignedPdfId(null);
+                }
+            }
+            
+            participantRepository.save(participant);
+            log.info("참여자 상태 초기화: 계약ID={}, 참여자ID={}", contract.getId(), participant.getId());
+        }
+        
+        // 계약 진행률 다시 계산
+        contract.calculateProgressRate();
+        contractRepository.save(contract);
+    }
+
+    /**
+     * 모든 참여자가 서명을 완료했는지 확인하고 계약 상태 업데이트
+     */
+    private void checkAllParticipantsSigned(Contract contract) {
+        // 모든 참여자가 서명을 완료했는지 확인
+        boolean allSigned = contract.getParticipants().stream()
+            .allMatch(ContractParticipant::isSigned);
+        
+        // 계약 진행률 계산 및 업데이트
+        contract.calculateProgressRate();
+        
+        // 모든 참여자가 서명을 완료했으면 계약 상태를 '승인대기'로 변경
+        if (allSigned) {
+            try {
+                updateContractStatus(contract.getId(), CONTRACT_STATUS_WAITING, "System");
+                log.info("모든 참여자 서명 완료: 계약ID={}, 상태='승인대기'", contract.getId());
+            } catch (Exception e) {
+                log.error("계약 상태 업데이트 중 오류 발생", e);
+            }
+        } else {
+            // 일부만 서명한 경우 '서명 진행중' 상태로 유지/변경
+            try {
+                if (contract.getStatusCode() == null || 
+                    CONTRACT_STATUS_TEMP.equals(contract.getStatusCode().getCodeId())) {
+                    updateContractStatus(contract.getId(), CONTRACT_STATUS_SIGNING, "System");
+                    log.info("일부 참여자 서명 완료: 계약ID={}, 상태='서명 진행중'", contract.getId());
+                }
+            } catch (Exception e) {
+                log.error("계약 상태 업데이트 중 오류 발생", e);
+            }
+        }
+        
+        // 변경된 진행률 저장
+        contractRepository.save(contract);
+    }
+
+    /**
+     * 참여자의 서명 과정을 시작합니다.
+     */
+    @Transactional
+    public ContractParticipant startParticipantSigning(Long contractId, Long participantId) {
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+        
+        // 참여자가 해당 계약에 속하는지 확인
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 이미 서명한 경우에는 변경하지 않음
+        if (participant.isSigned()) {
+            log.info("참여자가 이미 서명을 완료했습니다: 참여자ID={}", participantId);
+            return participant;
+        }
+        
+        // 상태를 '서명 중'으로 변경
+        Code signingStatus = codeRepository.findById(PARTICIPANT_STATUS_SIGNING)
+            .orElseThrow(() -> new EntityNotFoundException("서명 중 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_SIGNING));
+        participant.setStatusCode(signingStatus);
+        
+        // 필요한 경우 계약 상태도 서명 진행중으로 변경
+        if (contract.getStatusCode() == null || 
+            CONTRACT_STATUS_TEMP.equals(contract.getStatusCode().getCodeId())) {
+            updateContractStatus(contractId, CONTRACT_STATUS_SIGNING, "System");
+        }
+        
+        // 계약 진행률 업데이트 - 서명 중인 참여자도 진행률에 반영
+        contract.calculateProgressRate();
+        contractRepository.save(contract);
+        
+        participantRepository.save(participant);
+        log.info("참여자 서명 시작: 참여자ID={}", participantId);
+        
+        return participant;
     }
 } 

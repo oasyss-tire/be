@@ -25,11 +25,23 @@ public class ContractParticipant {
     @Enumerated(EnumType.STRING)
     private NotificationType notifyType;    // 발송방법 (EMAIL, SMS, KAKAO)
     
-    private boolean signed;  // isSigned -> signed로 변경
+    // 참여자 상태 코드 (코드로 관리)
+    @ManyToOne
+    @JoinColumn(name = "status_code_id")
+    private Code statusCode;               // 참여자 상태 코드 (서명대기/서명중/승인대기/승인완료/승인거부)
+    
+    // 기존 필드 유지 (호환성)
+    private boolean signed;                // 서명 여부 (호환성 유지)
     private LocalDateTime signedAt;         // 서명 일시
     
     private String pdfId;                   // 참여자별 서명용 PDF ID (첫 번째 템플릿의 PDF)
     private String signedPdfId;             // 서명 완료된 PDF ID (첫 번째 템플릿의 PDF)
+    
+    // 관리자 승인 관련 필드 (호환성 유지)
+    private boolean approved;              // 승인 여부
+    private LocalDateTime approvedAt;      // 승인 일시
+    private String approvalComment;        // 승인 코멘트
+    private String rejectionReason;        // 거부 사유
     
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "participant_id")

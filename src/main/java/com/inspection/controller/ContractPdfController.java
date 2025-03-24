@@ -1,42 +1,51 @@
 package com.inspection.controller;
 
-import com.inspection.dto.ContractPdfFieldDTO;
-import com.inspection.dto.SaveContractPdfFieldsRequest;
-import com.inspection.entity.ContractPdfField;
-import com.inspection.service.ContractPdfService;
-import com.inspection.service.PdfProcessingService;
-import com.inspection.service.PdfStorageService;
-import com.inspection.repository.ContractPdfFieldRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
-import java.util.List;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import java.util.stream.Collectors;
-import java.util.Map;
-import com.inspection.exception.ValidationException;
-import com.inspection.entity.ContractTemplate;
-import com.inspection.service.ContractTemplateService;
-import com.inspection.repository.ContractTemplateRepository;
-import com.inspection.dto.ContractTemplateDTO;
-import org.springframework.beans.factory.annotation.Value;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import org.springframework.http.HttpStatus;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import com.inspection.entity.ContractParticipant;
-import com.inspection.repository.ContractParticipantRepository;
 import java.time.LocalDateTime;
-import com.inspection.repository.ParticipantTemplateMappingRepository;
-import com.inspection.entity.ParticipantTemplateMapping;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.inspection.dto.ContractPdfFieldDTO;
+import com.inspection.dto.ContractTemplateDTO;
+import com.inspection.dto.SaveContractPdfFieldsRequest;
+import com.inspection.entity.ContractParticipant;
+import com.inspection.entity.ContractPdfField;
+import com.inspection.entity.ContractTemplate;
+import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.exception.ValidationException;
+import com.inspection.repository.ContractParticipantRepository;
+import com.inspection.repository.ContractPdfFieldRepository;
+import com.inspection.repository.ContractTemplateRepository;
+import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.service.ContractPdfService;
+import com.inspection.service.ContractTemplateService;
+import com.inspection.service.PdfProcessingService;
+import com.inspection.service.PdfStorageService;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @RestController
@@ -264,7 +273,22 @@ public class ContractPdfController {
             // 4. PDF에 필드 값 추가
             byte[] processedPdf = pdfProcessingService.addValuesToFields(originalPdf, fields);
             
-            // 5. signed 폴더에 저장
+            // 5. 현재 시간(서명 시간) 생성
+            LocalDateTime signedTime = LocalDateTime.now();
+            
+            // 6. PDF 하단에 서명 시간 추가
+            processedPdf = pdfProcessingService.addSignatureTimeToPdf(
+                processedPdf, 
+                "서명 완료 시간: " + signedTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            );
+            
+            // 7. PDF에 로고 워터마크 추가
+            processedPdf = pdfProcessingService.addLogoWatermark(
+                processedPdf, 
+                "/images/tirebank_logo.png"
+            );
+            
+            // 8. signed 폴더에 저장
             Path signedDir = Paths.get(uploadPath, "signed");
             if (!Files.exists(signedDir)) {
                 Files.createDirectories(signedDir);
@@ -273,18 +297,18 @@ public class ContractPdfController {
             Path signedPath = signedDir.resolve(signedPdfId);
             Files.write(signedPath, processedPdf);
             
-            // 6. ParticipantTemplateMapping 업데이트
+            // 9. ParticipantTemplateMapping 업데이트
             ParticipantTemplateMapping templateMapping = templateMappingRepository.findByPdfId(pdfId)
                 .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
             
             templateMapping.setSignedPdfId(signedPdfId);
             templateMapping.setSigned(true);
-            templateMapping.setSignedAt(LocalDateTime.now());
+            templateMapping.setSignedAt(signedTime);
             
             templateMappingRepository.save(templateMapping);
             log.info("Updated template mapping signed PDF ID: {}", signedPdfId);
             
-            // 7. 한글 파일명 인코딩 처리
+            // 10. 한글 파일명 인코딩 처리
             String encodedFilename = URLEncoder.encode(signedPdfId, StandardCharsets.UTF_8.toString())
                 .replaceAll("\\+", "%20");
             
@@ -465,6 +489,49 @@ public class ContractPdfController {
         } catch (Exception e) {
             log.error("Error deactivating template", e);
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // 서명된 PDF 미리보기
+    @GetMapping("/preview-signed-pdf/{pdfId}")
+    public ResponseEntity<byte[]> previewSignedPdf(@PathVariable String pdfId) {
+        try {
+            // 서명된 PDF ID 찾기
+            String signedPdfId = pdfId;
+            
+            // pdfId가 원본 PDF ID인 경우, 해당 매핑에서 서명된 PDF ID 조회
+            if (!pdfId.startsWith("signed_")) {
+                ParticipantTemplateMapping mapping = templateMappingRepository.findByPdfId(pdfId)
+                    .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
+                
+                if (mapping.getSignedPdfId() == null) {
+                    throw new RuntimeException("아직 서명되지 않은 PDF입니다: " + pdfId);
+                }
+                
+                signedPdfId = mapping.getSignedPdfId();
+            }
+            
+            // 경로 수정
+            Path signedPath = Paths.get(uploadPath, "signed", signedPdfId);
+            
+            if (!Files.exists(signedPath)) {
+                log.warn("PDF not found at path: {}", signedPath);
+                throw new RuntimeException("서명된 PDF를 찾을 수 없습니다: " + signedPdfId);
+            }
+            
+            byte[] pdfBytes = Files.readAllBytes(signedPath);
+            
+            // 브라우저에서 바로 열리도록 inline으로 설정
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + signedPdfId + "\"")
+                .header("X-Frame-Options", "SAMEORIGIN")
+                .header("Content-Security-Policy", "frame-ancestors 'self'")
+                .body(pdfBytes);
+                
+        } catch (Exception e) {
+            log.error("서명된 PDF 미리보기 오류: {}", pdfId, e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
 } 
