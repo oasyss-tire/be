@@ -112,4 +112,77 @@ public class JwtTokenProvider {
             throw new RuntimeException("토큰 무효화에 실패했습니다.");
         }
     }
+    
+    /**
+     * 계약 참여자용 토큰을 생성합니다.
+     * 
+     * @param participantId 참여자 ID
+     * @param validityInMilliseconds 토큰 유효 시간(밀리초)
+     * @return 생성된 JWT 토큰
+     */
+    public String createParticipantToken(Long participantId, long validityInMilliseconds) {
+        Claims claims = Jwts.claims().setSubject(participantId.toString());
+        claims.put("type", "participant"); // 참여자 토큰임을 명시
+        
+        Date now = new Date();
+        Date validity = new Date(now.getTime() + validityInMilliseconds);
+        
+        return Jwts.builder()
+                .setClaims(claims)
+                .setIssuedAt(now)
+                .setExpiration(validity)
+                .setId(UUID.randomUUID().toString())
+                .signWith(Keys.hmacShaKeyFor(jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8)))
+                .compact();
+    }
+    
+    /**
+     * 참여자 토큰으로부터 참여자 ID를 추출합니다.
+     * 
+     * @param token 검증할 토큰
+     * @return 참여자 ID
+     * @throws JwtException 토큰이 유효하지 않을 경우
+     */
+    public Long getParticipantIdFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(Keys.hmacShaKeyFor(jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8)))
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        
+        // 참여자 토큰인지 확인
+        if (!"participant".equals(claims.get("type"))) {
+            throw new JwtException("유효하지 않은 토큰 타입입니다. 참여자 토큰이 아닙니다.");
+        }
+        
+        return Long.parseLong(claims.getSubject());
+    }
+    
+    /**
+     * 참여자 토큰의 유효성을 검증합니다.
+     * 
+     * @param token 검증할 토큰
+     * @return 토큰 유효 여부
+     */
+    public boolean validateParticipantToken(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(Keys.hmacShaKeyFor(jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8)))
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            
+            // 참여자 토큰인지 확인
+            if (!"participant".equals(claims.get("type"))) {
+                logger.error("참여자 토큰이 아닙니다.");
+                return false;
+            }
+            
+            return true;
+        } catch (SignatureException | MalformedJwtException | ExpiredJwtException | 
+                 UnsupportedJwtException | IllegalArgumentException e) {
+            logger.error("참여자 토큰 검증 실패: {}", e.getMessage());
+            return false;
+        }
+    }
 } 

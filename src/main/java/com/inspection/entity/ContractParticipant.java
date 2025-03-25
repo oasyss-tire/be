@@ -43,6 +43,12 @@ public class ContractParticipant {
     private String approvalComment;        // 승인 코멘트
     private String rejectionReason;        // 거부 사유
     
+    // 재서명 관련 필드
+    private String resignRequestReason;     // 재서명 요청 이유
+    private LocalDateTime resignRequestedAt; // 재서명 요청 시간
+    private String resignApprovedBy;        // 재서명 승인자
+    private LocalDateTime resignApprovedAt; // 재서명 승인 시간
+    
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "participant_id")
     private List<ParticipantTemplateMapping> templateMappings = new ArrayList<>();

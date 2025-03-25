@@ -6,9 +6,13 @@ import java.util.Optional;
 import java.util.List;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
+@Repository
 public interface ParticipantTemplateMappingRepository extends JpaRepository<ParticipantTemplateMapping, Long> {
+    List<ParticipantTemplateMapping> findByParticipantId(Long participantId);
     Optional<ParticipantTemplateMapping> findByPdfId(String pdfId);
+    Optional<ParticipantTemplateMapping> findByParticipant_IdAndContractTemplateMapping_Template_Id(Long participantId, Long templateId);
     
     // 참여자 ID로 모든 템플릿 매핑 조회
     @Query("SELECT ptm FROM ParticipantTemplateMapping ptm WHERE ptm.id IN " +

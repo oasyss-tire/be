@@ -29,8 +29,18 @@ public class ParticipantTemplateMapping {
     @JoinColumn(name = "contract_template_mapping_id", nullable = false)
     private ContractTemplateMapping contractTemplateMapping;
     
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "participant_id", nullable = false)
+    private ContractParticipant participant;
+    
     private String pdfId;       // 참여자별 템플릿 PDF ID
     private String signedPdfId; // 서명 완료된 템플릿 PDF ID
+    
+    @Column(length = 100)
+    private String serialNumber; // 서명 완료된 문서의 시리얼 넘버
+    
+    @Column(length = 255)
+    private String documentPassword; // 암호화된 문서 비밀번호
     
     private boolean signed = false;
     private LocalDateTime signedAt;

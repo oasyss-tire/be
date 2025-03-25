@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.CreateParticipantRequest;
@@ -19,6 +20,7 @@ import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractTemplateMapping;
+import com.inspection.entity.ParticipantResignHistory;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.ContractParticipantRepository;
@@ -26,6 +28,11 @@ import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.util.EncryptionUtil;
+import com.inspection.repository.ParticipantResignHistoryRepository;
+import com.inspection.service.EmailService;
+import com.inspection.service.SMSService;
+import com.inspection.service.ParticipantTokenService;
+import com.inspection.enums.NotificationType;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +51,13 @@ public class ContractService {
     private final PdfService pdfService;
     private final EncryptionUtil encryptionUtil;
     private final CodeRepository codeRepository;
+    private final EmailService emailService;
+    private final SMSService smsService;
+    private final ParticipantResignHistoryRepository resignHistoryRepository;
+    private final ParticipantTokenService participantTokenService;
+    
+    @Value("${frontend.base-url}")
+    private String frontendBaseUrl;
     
     // 계약 상태 코드 상수 정의 (기존 코드 체계에 맞게 수정)
     private static final String CONTRACT_STATUS_TEMP = "001002_0003";      // 임시저장
@@ -757,5 +771,230 @@ public class ContractService {
         log.info("참여자 서명 시작: 참여자ID={}", participantId);
         
         return participant;
+    }
+    
+    /**
+     * 참여자가 재서명을 요청합니다.
+     * 이 메서드는 참여자가 계약 서명 완료 후 결과 페이지에서 재서명을 요청할 때 호출됩니다.
+     * 
+     * @param contractId 계약 ID
+     * @param participantId 참여자 ID
+     * @param reason 재서명 요청 이유 (선택)
+     * @return 업데이트된 참여자 객체
+     */
+    @Transactional
+    public ContractParticipant requestParticipantReSign(Long contractId, Long participantId, String reason) {
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+        
+        // 참여자가 해당 계약에 속하는지 확인
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 이미 재서명 요청 상태인 경우 예외 발생
+        if (participant.getStatusCode() != null && 
+            "008001_0006".equals(participant.getStatusCode().getCodeId())) {
+            throw new IllegalStateException("이미 재서명 요청 상태입니다.");
+        }
+        
+        // 서명이 완료된 상태에서만 재서명 요청 가능
+        if (!participant.isSigned()) {
+            throw new IllegalStateException("서명이 완료되지 않은 상태에서는 재서명을 요청할 수 없습니다.");
+        }
+        
+        log.info("참여자 재서명 요청 처리 시작: 계약ID={}, 참여자ID={}", contractId, participantId);
+        
+        try {
+            // 상태를 '재서명 요청'으로 변경
+            Code resignStatus = codeRepository.findById("008001_0006")
+                .orElseThrow(() -> new EntityNotFoundException("재서명 요청 상태 코드를 찾을 수 없습니다: 008001_0006"));
+            
+            participant.setStatusCode(resignStatus);
+            
+            // 기존 필드에도 정보 저장 (현재 상태 반영)
+            participant.setResignRequestReason(reason);
+            participant.setResignRequestedAt(LocalDateTime.now());
+            
+            // 재서명 이력 테이블에 기록
+            ParticipantResignHistory history = new ParticipantResignHistory(participant, reason);
+            resignHistoryRepository.save(history);
+            
+            // 참여자 저장
+            participantRepository.save(participant);
+            log.info("참여자 재서명 요청 완료: 계약ID={}, 참여자ID={}, 이력ID={}", 
+                contractId, participantId, history.getId());
+        } catch (Exception e) {
+            log.error("참여자 재서명 요청 처리 중 오류 발생", e);
+            throw e;
+        }
+        
+        return participant;
+    }
+    
+    /**
+     * 관리자가 참여자의 재서명 요청을 승인합니다.
+     * 이 메서드는 관리자가 참여자의 재서명 요청을 승인할 때 호출됩니다.
+     * 
+     * @param contractId 계약 ID
+     * @param participantId 참여자 ID
+     * @param approver 승인자 이름
+     * @return 업데이트된 참여자 객체
+     */
+    @Transactional
+    public ContractParticipant approveParticipantReSign(Long contractId, Long participantId, String approver) {
+        Contract contract = contractRepository.findById(contractId)
+            .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+        
+        // 참여자가 해당 계약에 속하는지 확인
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 재서명 요청 상태인지 확인
+        if (participant.getStatusCode() == null || 
+            !"008001_0006".equals(participant.getStatusCode().getCodeId())) {
+            throw new IllegalStateException("재서명 요청 상태인 참여자만 승인할 수 있습니다.");
+        }
+        
+        log.info("참여자 재서명 승인 처리 시작: 계약ID={}, 참여자ID={}, 승인자={}", 
+            contractId, participantId, approver);
+        
+        try {
+            // 가장 최근의 미처리 재서명 요청 이력 조회
+            ParticipantResignHistory latestHistory = resignHistoryRepository
+                .findTopByParticipantIdOrderByRequestedAtDesc(participantId);
+                
+            if (latestHistory == null || latestHistory.isProcessed()) {
+                log.warn("미처리된 재서명 요청이 없습니다. 새로운 이력을 생성합니다: 참여자ID={}", participantId);
+                latestHistory = new ParticipantResignHistory(participant, "시스템 생성: 이력 누락");
+                resignHistoryRepository.save(latestHistory);
+            }
+            
+            // 이력 승인 처리
+            latestHistory.approve(approver);
+            resignHistoryRepository.save(latestHistory);
+            
+            // 서명 상태 초기화
+            participant.setSigned(false);
+            participant.setSignedAt(null);
+            participant.setApproved(false);
+            participant.setApprovedAt(null);
+            participant.setApprovalComment(null);
+            
+            // 참여자의 템플릿 매핑 서명 상태도 초기화
+            if (participant.getTemplateMappings() != null) {
+                for (var mapping : participant.getTemplateMappings()) {
+                    mapping.setSigned(false);
+                    mapping.setSignedAt(null);
+                    mapping.setSignedPdfId(null);
+                }
+            }
+            
+            // 상태를 '서명 대기'로 변경
+            Code waitingStatus = codeRepository.findById(PARTICIPANT_STATUS_WAITING)
+                .orElseThrow(() -> new EntityNotFoundException("서명 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_WAITING));
+            participant.setStatusCode(waitingStatus);
+            
+            // 기존 필드에도 정보 저장 (현재 상태 반영)
+            participant.setResignApprovedBy(approver);
+            participant.setResignApprovedAt(LocalDateTime.now());
+            
+            // 계약 상태 업데이트 (서명 진행중으로 변경)
+            if (!CONTRACT_STATUS_SIGNING.equals(contract.getStatusCode().getCodeId())) {
+                updateContractStatus(contractId, CONTRACT_STATUS_SIGNING, approver);
+            }
+            
+            // 저장
+            participantRepository.save(participant);
+            log.info("참여자 재서명 승인 완료: 계약ID={}, 참여자ID={}, 이력ID={}", 
+                contractId, participantId, latestHistory.getId());
+            
+            // 재서명 요청 메일이나 SMS 발송
+            try {
+                // 새로운 서명 토큰 생성
+                String token = participantTokenService.generateParticipantToken(participantId);
+                String signatureUrl = frontendBaseUrl + "/contract-sign?token=" + token;
+                
+                // 참여자의 알림 유형에 따라 이메일 또는 SMS 발송
+                NotificationType notifyType = participant.getNotifyType();
+                if (NotificationType.EMAIL.equals(notifyType) && participant.getEmail() != null) {
+                    // 이메일 복호화
+                    String decryptedEmail = encryptionUtil.decrypt(participant.getEmail());
+                    
+                    // 재서명 요청 이메일 발송 - 전용 메서드 사용
+                    emailService.sendResignRequestEmail(
+                        participantId,
+                        decryptedEmail,
+                        participant.getName(),
+                        contract.getTitle(),
+                        frontendBaseUrl
+                    );
+                    log.info("재서명 요청 이메일 발송 완료: 참여자ID={}, 이메일={}", 
+                        participantId, decryptedEmail.replaceAll("(?<=.{3}).(?=.*@)", "*"));
+                } else if (NotificationType.SMS.equals(notifyType) && participant.getPhoneNumber() != null) {
+                    // SMS 발송
+                    smsService.sendSignatureSMS(participant, signatureUrl, contract.getTitle() + " (재서명)");
+                    log.info("재서명 요청 SMS 발송 완료: 참여자ID={}", participantId);
+                } else {
+                    log.warn("참여자 알림 유형이 없거나 연락처 정보가 없습니다: 참여자ID={}, 알림유형={}", 
+                        participantId, notifyType);
+                }
+            } catch (Exception e) {
+                // 알림 발송 실패 시에도 재서명 승인 처리는 계속 진행
+                log.error("재서명 요청 알림 발송 실패: {}", e.getMessage(), e);
+            }
+            
+            // 계약 진행률 다시 계산
+            contract.calculateProgressRate();
+            contractRepository.save(contract);
+        } catch (Exception e) {
+            log.error("참여자 재서명 승인 처리 중 오류 발생", e);
+            throw e;
+        }
+        
+        return participant;
+    }
+
+    /**
+     * 특정 참여자의 재서명 이력을 조회합니다.
+     * 
+     * @param contractId 계약 ID
+     * @param participantId 참여자 ID
+     * @return 재서명 이력 목록
+     */
+    public List<?> getParticipantResignHistory(Long contractId, Long participantId) {
+        // 참여자가 해당 계약에 속하는지 확인
+        ContractParticipant participant = participantRepository.findById(participantId)
+            .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+            
+        if (!participant.getContract().getId().equals(contractId)) {
+            throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
+        }
+        
+        // 참여자의 재서명 이력 조회
+        return resignHistoryRepository.findByParticipantIdOrderByRequestedAtDesc(participantId);
+    }
+    
+    /**
+     * 계약의 모든 재서명 이력을 조회합니다.
+     * 
+     * @param contractId 계약 ID
+     * @return 재서명 이력 목록
+     */
+    public List<?> getContractResignHistory(Long contractId) {
+        // 계약 존재 여부 확인
+        if (!contractRepository.existsById(contractId)) {
+            throw new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId);
+        }
+        
+        // 계약의 모든 재서명 이력 조회
+        return resignHistoryRepository.findByContractIdOrderByRequestedAtDesc(contractId);
     }
 } 
