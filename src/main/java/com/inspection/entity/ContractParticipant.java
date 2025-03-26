@@ -63,8 +63,10 @@ public class ContractParticipant {
     public void addTemplateMapping(ContractTemplateMapping contractTemplateMapping, String pdfId) {
         ParticipantTemplateMapping mapping = new ParticipantTemplateMapping();
         mapping.setContractTemplateMapping(contractTemplateMapping);
+        mapping.setParticipant(this); // 참여자 객체 명시적으로 설정
         mapping.setPdfId(pdfId);
         mapping.setSignedPdfId(null); // 초기값은 null
+        mapping.setCreatedAt(LocalDateTime.now()); // 생성 시간 설정
         this.templateMappings.add(mapping);
     }
     

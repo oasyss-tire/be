@@ -21,6 +21,7 @@ import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractTemplateMapping;
 import com.inspection.entity.ParticipantResignHistory;
+import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.ContractParticipantRepository;
@@ -29,6 +30,7 @@ import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.util.EncryptionUtil;
 import com.inspection.repository.ParticipantResignHistoryRepository;
+import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.service.EmailService;
 import com.inspection.service.SMSService;
 import com.inspection.service.ParticipantTokenService;
@@ -55,6 +57,7 @@ public class ContractService {
     private final SMSService smsService;
     private final ParticipantResignHistoryRepository resignHistoryRepository;
     private final ParticipantTokenService participantTokenService;
+    private final ParticipantTemplateMappingRepository participantTemplateMappingRepository;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
@@ -191,8 +194,37 @@ public class ContractService {
                         participant.setPdfId(participantPdfId);
                     }
                     
-                    // 참여자-템플릿 매핑 생성
-                    participant.addTemplateMapping(templateMapping, participantPdfId);
+                    // 참여자-템플릿 매핑 생성 (이미 ID가 있는 참여자 객체 사용)
+                    if (participant.getId() == null) {
+                        log.error("참여자 ID가 NULL입니다. 매핑 생성 불가: participantName={}", participant.getName());
+                        throw new RuntimeException("참여자 ID가 NULL입니다. 참여자가 먼저 저장되어야 합니다.");
+                    }
+                    
+                    log.info("참여자-템플릿 매핑 생성: participantId={}, participantName={}, templateId={}", 
+                        participant.getId(), participant.getName(), templateMapping.getTemplate().getId());
+                    
+                    // 매핑 생성 및 저장
+                    ParticipantTemplateMapping ptMapping = new ParticipantTemplateMapping();
+                    ptMapping.setContractTemplateMapping(templateMapping);
+                    ptMapping.setParticipant(participant);
+                    ptMapping.setPdfId(participantPdfId);
+                    ptMapping.setSignedPdfId(null);
+                    ptMapping.setCreatedAt(LocalDateTime.now());
+                    ptMapping.setSigned(false);
+                    
+                    // 매핑 저장 (참여자 ID가 설정된 상태에서 직접 저장)
+                    ParticipantTemplateMapping savedMapping = participantTemplateMappingRepository.save(ptMapping);
+                    log.info("참여자-템플릿 매핑 저장 완료: mappingId={}, participantId={}, templateId={}", 
+                        savedMapping.getId(), participant.getId(), templateMapping.getTemplate().getId());
+                    
+                    // 참여자의 템플릿 매핑 리스트에 추가
+                    if (participant.getTemplateMappings() == null) {
+                        participant.setTemplateMappings(new ArrayList<>());
+                    }
+                    participant.getTemplateMappings().add(savedMapping);
+                    
+                    // 변경사항 저장
+                    participant = participantRepository.save(participant);
                     
                     log.info("Created participant PDF and fields: {} for {} (Template: {})", 
                         participantPdfId, participant.getName(), templateMapping.getTemplate().getTemplateName());
