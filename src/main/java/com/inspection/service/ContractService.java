@@ -22,6 +22,7 @@ import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractTemplateMapping;
 import com.inspection.entity.ParticipantResignHistory;
 import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.entity.ParticipantPdfField;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.ContractParticipantRepository;
@@ -31,6 +32,7 @@ import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.util.EncryptionUtil;
 import com.inspection.repository.ParticipantResignHistoryRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.service.EmailService;
 import com.inspection.service.SMSService;
 import com.inspection.service.ParticipantTokenService;
@@ -58,6 +60,7 @@ public class ContractService {
     private final ParticipantResignHistoryRepository resignHistoryRepository;
     private final ParticipantTokenService participantTokenService;
     private final ParticipantTemplateMappingRepository participantTemplateMappingRepository;
+    private final ParticipantPdfFieldRepository participantPdfFieldRepository;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
@@ -187,7 +190,7 @@ public class ContractService {
                     
                     // 템플릿의 필드 정보 복사
                     copyPdfFields(templateMapping.getTemplate().getOriginalPdfId(), 
-                                 participantPdfId, templateMapping.getTemplate());
+                                 participantPdfId, templateMapping.getTemplate(), participant);
                     
                     // 첫 번째 템플릿의 PDF는 대표 PDF로 설정
                     if (templateMapping.getSortOrder() == 1) {
@@ -361,7 +364,7 @@ public class ContractService {
     /**
      * PDF 필드 정보 복사
      */
-    private void copyPdfFields(String sourcePdfId, String targetPdfId, ContractTemplate template) {
+    private void copyPdfFields(String sourcePdfId, String targetPdfId, ContractTemplate template, ContractParticipant participant) {
         // 템플릿의 originalPdfId로 필드 정보 조회
         List<ContractPdfField> templateFields = contractPdfFieldRepository.findByPdfId(template.getOriginalPdfId());
         log.info("Found {} template fields for originalPdfId: {}", templateFields.size(), template.getOriginalPdfId());
@@ -371,25 +374,27 @@ public class ContractService {
             return;
         }
 
-        List<ContractPdfField> participantFields = templateFields.stream()
+        List<ParticipantPdfField> participantFields = templateFields.stream()
             .map(templateField -> {
-                ContractPdfField participantField = new ContractPdfField();
+                ParticipantPdfField participantField = new ParticipantPdfField();
+                participantField.setOriginalField(templateField);
+                participantField.setParticipant(participant);
                 participantField.setPdfId(targetPdfId);
                 participantField.setFieldId(templateField.getFieldId());
+                participantField.setFieldName(templateField.getFieldName());
                 participantField.setType(templateField.getType());
                 participantField.setRelativeX(templateField.getRelativeX());
                 participantField.setRelativeY(templateField.getRelativeY());
                 participantField.setRelativeWidth(templateField.getRelativeWidth());
                 participantField.setRelativeHeight(templateField.getRelativeHeight());
                 participantField.setPage(templateField.getPage());
-                participantField.setFieldName(templateField.getFieldName());
                 participantField.setTemplate(template);
                 return participantField;
             })
             .collect(Collectors.toList());
             
         try {
-            List<ContractPdfField> savedFields = contractPdfFieldRepository.saveAll(participantFields);
+            List<ParticipantPdfField> savedFields = participantPdfFieldRepository.saveAll(participantFields);
             log.info("Successfully copied {} fields from template to participant pdfId: {}", 
                 savedFields.size(), targetPdfId);
         } catch (Exception e) {

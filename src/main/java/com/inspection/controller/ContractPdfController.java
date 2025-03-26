@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,11 +42,13 @@ import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.entity.ParticipantPdfField;
 import com.inspection.exception.ValidationException;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.service.ContractPdfService;
 import com.inspection.service.ContractTemplateService;
 import com.inspection.service.EmailService;
@@ -64,6 +68,8 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 
+import com.inspection.dto.ParticipantPdfFieldDTO;
+
 @Slf4j
 @RestController
 @RequestMapping("/api/contract-pdf")
@@ -79,6 +85,7 @@ public class ContractPdfController {
     private final ParticipantTemplateMappingRepository templateMappingRepository;
     private final EmailService emailService;
     private final EncryptionUtil encryptionUtil;
+    private final ParticipantPdfFieldRepository participantPdfFieldRepository;
 
     @Value("${file.upload.path}")
     private String uploadPath;
@@ -108,9 +115,18 @@ public class ContractPdfController {
 
     // PDF 필드 조회 (필드 위치 확인)
     @GetMapping("/fields/{pdfId}")
-    public ResponseEntity<List<ContractPdfFieldDTO>> getFields(@PathVariable String pdfId) {
-        List<ContractPdfFieldDTO> fields = contractPdfService.getFieldsByPdfId(pdfId);
-        return ResponseEntity.ok(fields);
+    public ResponseEntity<List<?>> getFields(@PathVariable String pdfId) {
+        // 템플릿 필드인지 참여자 필드인지 확인
+        List<ContractPdfFieldDTO> templateFields = contractPdfService.getFieldsByPdfId(pdfId);
+        
+        if (!templateFields.isEmpty()) {
+            // 템플릿 필드인 경우
+            return ResponseEntity.ok(templateFields);
+        } else {
+            // 참여자 필드인 경우
+            List<ParticipantPdfFieldDTO> participantFields = contractPdfService.getParticipantFieldsByPdfId(pdfId);
+            return ResponseEntity.ok(participantFields);
+        }
     }
 
 
@@ -197,7 +213,7 @@ public class ContractPdfController {
         }
     }
 
-    // 서명 값 입력 (5)
+    // 서명 값 입력
     @PostMapping("/fields/{pdfId}/value") 
     public ResponseEntity<?> addFieldValue(
         @PathVariable String pdfId,
@@ -205,8 +221,8 @@ public class ContractPdfController {
         @RequestBody Map<String, Object> value
     ) {
         try {
-            // 1. 필드 찾기
-            ContractPdfField field = contractPdfFieldRepository.findByPdfIdAndFieldName(pdfId, fieldName)
+            // 1. 필드 찾기 - ParticipantPdfField 사용
+            ParticipantPdfField field = participantPdfFieldRepository.findByPdfIdAndFieldName(pdfId, fieldName)
                 .orElseThrow(() -> new RuntimeException("Field not found: " + fieldName));
             
             // 2. 값 검증
@@ -218,15 +234,15 @@ public class ContractPdfController {
             field.setValue(fieldValue.toString());
             
             // 4. 저장
-            ContractPdfField updatedField = contractPdfFieldRepository.save(field);
+            ParticipantPdfField updatedField = participantPdfFieldRepository.save(field);
             
             // 5. PDF 업데이트 (선택적)
             if (value.containsKey("updatePdf") && Boolean.TRUE.equals(value.get("updatePdf"))) {
                 updatePdfWithFieldValue(pdfId, field);
             }
             
-            // 6. DTO로 변환하여 반환 (이제 String ID를 사용)
-            return ResponseEntity.ok(new ContractPdfFieldDTO(updatedField));
+            // 6. DTO로 변환하여 반환
+            return ResponseEntity.ok(new ParticipantPdfFieldDTO(updatedField));
             
         } catch (ValidationException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -265,7 +281,7 @@ public class ContractPdfController {
     }
 
     // PDF 업데이트 메소드
-    private void updatePdfWithFieldValue(String pdfId, ContractPdfField field) throws IOException {
+    private void updatePdfWithFieldValue(String pdfId, ParticipantPdfField field) throws IOException {
         byte[] originalPdf = pdfStorageService.loadPdf(pdfId);
         byte[] processedPdf = pdfProcessingService.addValueToField(
             originalPdf,
@@ -291,8 +307,8 @@ public class ContractPdfController {
             }
             byte[] originalPdf = Files.readAllBytes(originalPath);
             
-            // 3. 해당 PDF의 모든 필드와 값 조회
-            List<ContractPdfField> fields = contractPdfFieldRepository.findByPdfId(pdfId);
+            // 3. 해당 PDF의 모든 필드와 값 조회 (ParticipantPdfField 사용)
+            List<ParticipantPdfField> fields = participantPdfFieldRepository.findByPdfId(pdfId);
             log.info("Found {} fields with values for PDF: {}", fields.size(), pdfId);
             
             // 4. PDF에 필드 값 추가
@@ -888,4 +904,5 @@ public class ContractPdfController {
         
         return sb.toString();
     }
+
 } 

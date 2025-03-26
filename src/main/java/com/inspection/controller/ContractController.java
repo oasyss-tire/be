@@ -384,79 +384,8 @@ public class ContractController {
         }
     }
     
-    /**
-     * 계약 승인 API
-     */
-    @PostMapping("/{contractId}/approve")
-    public ResponseEntity<?> approveContract(
-        @PathVariable Long contractId,
-        @RequestParam String approver
-    ) {
-        try {
-            log.info("Contract approval request: contractId={}, approver={}", contractId, approver);
-                
-            Contract contract = contractService.approveContract(contractId, approver);
-            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
-        } catch (IllegalStateException e) {
-            log.warn("Invalid contract state for approval: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(e.getMessage()));
-        } catch (Exception e) {
-            log.error("Error approving contract", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse("계약 승인 중 오류가 발생했습니다: " + e.getMessage()));
-        }
-    }
     
-    /**
-     * 계약 반려 API (수정 요청)
-     */
-    @PostMapping("/{contractId}/reject")
-    public ResponseEntity<?> rejectContract(
-        @PathVariable Long contractId,
-        @RequestParam String rejectionReason,
-        @RequestParam String rejector
-    ) {
-        try {
-            log.info("Contract rejection request: contractId={}, rejector={}", contractId, rejector);
-                
-            Contract contract = contractService.rejectContract(contractId, rejectionReason, rejector);
-            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
-        } catch (IllegalStateException e) {
-            log.warn("Invalid contract state for rejection: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(e.getMessage()));
-        } catch (Exception e) {
-            log.error("Error rejecting contract", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse("계약 반려 중 오류가 발생했습니다: " + e.getMessage()));
-        }
-    }
-    
-    /**
-     * 계약 반려 후 재서명 요청 API
-     */
-    @PostMapping("/{contractId}/resend")
-    public ResponseEntity<?> resendContractForReSign(
-        @PathVariable Long contractId,
-        @RequestParam String reason,
-        @RequestParam String rejector
-    ) {
-        try {
-            log.info("Contract resend request: contractId={}, rejector={}", contractId, rejector);
-                
-            Contract contract = contractService.resendContractForReSign(contractId, reason, rejector);
-            return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
-        } catch (IllegalStateException e) {
-            log.warn("Invalid contract state for resend: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(e.getMessage()));
-        } catch (Exception e) {
-            log.error("Error resending contract", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse("계약 재전송 중 오류가 발생했습니다: " + e.getMessage()));
-        }
-    }
+
     
     /**
      * 참여자 승인 API

@@ -10,6 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import com.inspection.entity.ParticipantPdfField;
+import com.inspection.repository.ParticipantPdfFieldRepository;
+import com.inspection.dto.ParticipantPdfFieldDTO;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -17,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ContractPdfService {
     private final ContractPdfFieldRepository contractPdfFieldRepository;
+    private final ParticipantPdfFieldRepository participantPdfFieldRepository;
 
     public void saveFields(SaveContractPdfFieldsRequest request) {
         log.info("Deleting existing fields for PDF: {}", request.getPdfId());
@@ -50,5 +55,15 @@ public class ContractPdfService {
         return contractPdfFieldRepository.findByPdfId(pdfId).stream()
             .map(ContractPdfFieldDTO::new)
             .collect(Collectors.toList());
+    }
+
+    public List<ParticipantPdfFieldDTO> getParticipantFieldsByPdfId(String pdfId) {
+        return participantPdfFieldRepository.findByPdfId(pdfId).stream()
+            .map(ParticipantPdfFieldDTO::new)
+            .collect(Collectors.toList());
+    }
+    
+    public Optional<ParticipantPdfField> getParticipantFieldByPdfIdAndFieldName(String pdfId, String fieldName) {
+        return participantPdfFieldRepository.findByPdfIdAndFieldName(pdfId, fieldName);
     }
 } 

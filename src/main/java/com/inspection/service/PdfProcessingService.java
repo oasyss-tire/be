@@ -24,6 +24,7 @@ import org.apache.pdfbox.pdmodel.interactive.annotation.PDBorderStyleDictionary;
 import org.springframework.stereotype.Service;
 
 import com.inspection.entity.ContractPdfField;
+import com.inspection.entity.ParticipantPdfField;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -81,7 +82,7 @@ public class PdfProcessingService {
         page.getAnnotations().add(annotation);
     }
     
-    public byte[] addValueToField(byte[] pdf, ContractPdfField field, String value, String type) throws IOException {
+    public byte[] addValueToField(byte[] pdf, ParticipantPdfField field, String value, String type) throws IOException {
         try (PDDocument document = PDDocument.load(pdf)) {
             PDPage page = document.getPage(field.getPage() - 1);
             
@@ -180,7 +181,7 @@ public class PdfProcessingService {
         contentStream.endText();
     }
     
-    public byte[] addValuesToFields(byte[] pdf, List<ContractPdfField> fields) throws IOException {
+    public byte[] addValuesToFields(byte[] pdf, List<ParticipantPdfField> fields) throws IOException {
         try (PDDocument document = PDDocument.load(pdf)) {
             // 기존 annotation 제거 (노란색 테두리 제거)
             for (PDPage page : document.getPages()) {
@@ -188,7 +189,7 @@ public class PdfProcessingService {
             }
 
             // 값만 추가
-            for (ContractPdfField field : fields) {
+            for (ParticipantPdfField field : fields) {
                 if (field.getValue() == null || field.getValue().isEmpty()) {
                     continue;
                 }
