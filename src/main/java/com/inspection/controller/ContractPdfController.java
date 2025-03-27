@@ -387,17 +387,27 @@ public class ContractPdfController {
                     // 서명 완료 URL 생성 (프론트엔드 URL)
                     String redirectUrl = frontendBaseUrl + "/contract-signed?id=" + signedPdfId;
                     
-                    // 암호가 포함된 이메일 발송
-                    emailService.sendPdfPasswordEmail(
-                        decryptedEmail,
-                        participant.getName(),
-                        password,
-                        signedPdfId
-                    );
+                    // 중복 이메일 발송 방지 키 생성
+                    String emailSentKey = "email_password_sent_" + participantId + "_" + contractId;
                     
-                    log.info("PDF 암호 이메일 발송 완료: 참여자={}, 이메일={}", 
-                            participant.getName(), 
-                            decryptedEmail.substring(0, Math.min(3, decryptedEmail.length())) + "***");
+                    // 이미 비밀번호 이메일을 보냈는지 확인
+                    if (!contractPasswordCache.containsKey(emailSentKey)) {
+                        // 암호가 포함된 이메일 발송
+                        emailService.sendPdfPasswordEmail(
+                            decryptedEmail,
+                            participant.getName(),
+                            password,
+                            signedPdfId
+                        );
+                        
+                        // 이메일 발송 표시 (캐시에 저장)
+                        contractPasswordCache.put(emailSentKey, "sent");
+                        log.info("PDF 암호 이메일 발송 완료: 참여자={}, 이메일={}", 
+                                participant.getName(), 
+                                decryptedEmail.substring(0, Math.min(3, decryptedEmail.length())) + "***");
+                    } else {
+                        log.info("PDF 암호 이메일 이미 발송됨 (중복 방지): 참여자={}", participant.getName());
+                    }
                 } catch (Exception e) {
                     log.error("암호 이메일 발송 오류", e);
                 }
@@ -884,16 +894,25 @@ public class ContractPdfController {
                     String contractTitle = participant.getContract().getTitle();
                     
                     // 이미 이메일을 보냈는지 확인하기 위한 키 생성
-                    String emailSentKey = "email_sent_" + participantId + "_" + contractId;
+                    String emailSentKey = "email_password_sent_" + participantId + "_" + contractId;
+                    
+                    // 이미 비밀번호 이메일을 보냈는지 확인
                     if (!contractPasswordCache.containsKey(emailSentKey)) {
-                        emailService.sendPdfPasswordEmail(decryptedEmail, participant.getName(), password, signedPdfFileName);
-                        log.info("PDF 암호 이메일 발송 성공 - 참여자: {}, 이메일: {}", 
-                                participant.getName(), decryptedEmail.replaceAll("(?<=.{3}).(?=.*@)", "*"));
+                        // 암호가 포함된 이메일 발송
+                        emailService.sendPdfPasswordEmail(
+                            decryptedEmail,
+                            participant.getName(),
+                            password,
+                            signedPdfFileName
+                        );
                         
-                        // 이메일 발송 표시
+                        // 이메일 발송 표시 (캐시에 저장)
                         contractPasswordCache.put(emailSentKey, "sent");
+                        log.info("PDF 암호 이메일 발송 완료: 참여자={}, 이메일={}", 
+                                participant.getName(), 
+                                decryptedEmail.substring(0, Math.min(3, decryptedEmail.length())) + "***");
                     } else {
-                        log.info("이미 PDF 암호 이메일 발송됨 - 참여자: {}", participant.getName());
+                        log.info("PDF 암호 이메일 이미 발송됨 (중복 방지): 참여자={}", participant.getName());
                     }
                 } catch (Exception e) {
                     log.error("PDF 암호 이메일 발송 실패: {}", e.getMessage());

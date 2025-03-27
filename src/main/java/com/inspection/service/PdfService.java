@@ -1,5 +1,6 @@
 package com.inspection.service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -330,6 +331,46 @@ public class PdfService {
         } catch (IOException e) {
             log.error("재서명 PDF 생성 중 오류 발생: {}", e.getMessage(), e);
             throw new RuntimeException("재서명 PDF 생성 중 오류가 발생했습니다.", e);
+        }
+    }
+
+    /**
+     * PDF에 비밀번호 암호화 적용
+     * 
+     * @param pdfData PDF 바이트 배열
+     * @param password 적용할 비밀번호
+     * @return 암호화된 PDF 바이트 배열
+     */
+    public byte[] encryptPdf(byte[] pdfData, String password) {
+        try {
+            log.info("PDF 암호화 시작");
+            
+            // 이미 사용중인 암호화 메서드가 있다면 그것을 사용
+            // ContractPdfController에 있는 encryptPdfWithPassword 메서드와 동일한 로직 사용
+            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                com.itextpdf.text.pdf.PdfReader reader = new com.itextpdf.text.pdf.PdfReader(pdfData);
+                com.itextpdf.text.pdf.PdfStamper stamper = new com.itextpdf.text.pdf.PdfStamper(reader, baos);
+                
+                // 암호 설정 및 권한 제한 (인쇄만 허용)
+                stamper.setEncryption(
+                    password.getBytes(),          // 문서 열기 암호
+                    password.getBytes(),          // 권한 암호 (동일하게 설정)
+                    com.itextpdf.text.pdf.PdfWriter.ALLOW_PRINTING,     // 인쇄 허용, 나머지 모두 제한
+                    com.itextpdf.text.pdf.PdfWriter.ENCRYPTION_AES_128  // AES 128비트 암호화
+                );
+                
+                stamper.close();
+                reader.close();
+                
+                log.info("PDF 암호화 완료");
+                return baos.toByteArray();
+            }
+        } catch (Exception e) {
+            log.error("PDF 암호화 실패: {}", e.getMessage(), e);
+            
+            // 암호화 실패 시 원본 반환
+            log.warn("암호화 실패로 원본 PDF 반환");
+            return pdfData;
         }
     }
 } 

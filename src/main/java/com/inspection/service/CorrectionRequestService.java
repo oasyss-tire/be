@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.HashMap;
+import java.util.Objects;
+import java.io.ByteArrayOutputStream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.util.EncryptionUtil;
+
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -375,6 +378,27 @@ public class CorrectionRequestService {
                             "/images/tirebank_logo.png"
                         );
                         
+                        // 원본 서명 PDF와 동일한 비밀번호 적용
+                        // 저장된 암호화된 비밀번호 가져오기
+                        String encryptedPassword = mapping.getDocumentPassword();
+                        String password = null;
+                        
+                        try {
+                            if (encryptedPassword != null && !encryptedPassword.isEmpty()) {
+                                // 비밀번호 복호화
+                                password = encryptionUtil.decrypt(encryptedPassword);
+                                log.info("원본 PDF 비밀번호 재사용 - PDF ID: {}", pdfId);
+                                
+                                // PdfService를 사용하여 암호화
+                                processedPdf = pdfService.encryptPdf(processedPdf, password);
+                            } else {
+                                log.warn("원본 PDF의 비밀번호를 찾을 수 없습니다. 암호화 없이 진행합니다.");
+                            }
+                        } catch (Exception e) {
+                            log.error("PDF 비밀번호 적용 중 오류 발생: {}", e.getMessage(), e);
+                            // 비밀번호 오류는 프로세스를 중단시키지 않음
+                        }
+                        
                         // 재서명 PDF 폴더 확인 및 생성
                         Path resignedDir = Paths.get(uploadPath, "resigned");
                         if (!Files.exists(resignedDir)) {
@@ -391,6 +415,33 @@ public class CorrectionRequestService {
                         mapping.setResignedAt(now);
                         
                         log.info("재서명 PDF 생성 완료 - 참여자 ID: {}, PDF ID: {}", participantId, resignedPdfId);
+                        
+                        // 비밀번호가 있는 경우 이메일로 발송
+                        try {
+                            if (password != null) {
+                                // 참여자 이메일 정보가 있는 경우에만 발송
+                                if (participant.getEmail() != null && !participant.getEmail().trim().isEmpty()) {
+                                    String decryptedEmail = encryptionUtil.decrypt(participant.getEmail());
+                                    String contractTitle = participant.getContract().getTitle();
+                                    
+                                    // 재서명 완료 이메일 발송 (비밀번호 포함)
+                                    emailService.sendPdfPasswordEmail(
+                                        decryptedEmail,
+                                        participant.getName(),
+                                        password,
+                                        resignedPdfId
+                                    );
+                                    
+                                    log.info("재서명 PDF 비밀번호 이메일 발송 성공 - 참여자: {}, 이메일: {}", 
+                                        participant.getName(), decryptedEmail.replaceAll("(?<=.{3}).(?=.*@)", "*"));
+                                }
+                            } else {
+                                log.info("비밀번호가 없어 이메일 발송을 건너뜁니다.");
+                            }
+                        } catch (Exception e) {
+                            log.error("재서명 PDF 비밀번호 이메일 발송 실패: {}", e.getMessage(), e);
+                            // 이메일 발송 오류는 프로세스를 중단하지 않음
+                        }
                     } else {
                         log.warn("해당 PDF에 재서명할 필드가 없습니다 - PDF ID: {}", pdfId);
                         // 필드가 없어도 재서명 처리는 완료
