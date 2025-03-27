@@ -337,11 +337,6 @@ public class ContractService {
             throw new IllegalArgumentException("참여자가 해당 계약에 속하지 않습니다.");
         }
         
-        // 이미 서명한 경우
-        if (participant.isSigned()) {
-            return;
-        }
-        
         // 서명 완료 처리
         participant.setSigned(true);
         participant.setSignedAt(LocalDateTime.now());
@@ -350,6 +345,17 @@ public class ContractService {
         Code approvalWaitingStatus = codeRepository.findById(PARTICIPANT_STATUS_APPROVAL_WAITING)
             .orElseThrow(() -> new EntityNotFoundException("승인 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_APPROVAL_WAITING));
         participant.setStatusCode(approvalWaitingStatus);
+        
+        // 재서명 상태 초기화: 모든 템플릿 매핑의 needsResign 필드를 false로 설정
+        if (participant.getTemplateMappings() != null) {
+            participant.getTemplateMappings().forEach(mapping -> {
+                if (mapping.isNeedsResign()) {
+                    log.info("재서명 상태 초기화 - 참여자: {}, PDF ID: {}", 
+                        participant.getName(), mapping.getPdfId());
+                    mapping.setNeedsResign(false);
+                }
+            });
+        }
         
         // 계약 진행률 계산 및 업데이트
         contract.calculateProgressRate();

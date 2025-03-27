@@ -417,4 +417,84 @@ public class EmailService {
             // 이메일 실패는 Critical 오류가 아니므로 예외를 던지지 않고 로그만 기록
         }
     }
+
+    /**
+     * 이메일 템플릿 HTML 불러오기
+     * 
+     * @param templateName 템플릿 이름
+     * @return 템플릿 HTML 문자열
+     */
+    private String getHtmlTemplate(String templateName) {
+        try {
+            // 템플릿 경로 (src/main/resources/templates/emails/)
+            String templatePath = "templates/emails/" + templateName + ".html";
+            
+            // 클래스패스에서 리소스 로드
+            org.springframework.core.io.Resource resource = 
+                new org.springframework.core.io.ClassPathResource(templatePath);
+            
+            // 리소스가 존재하는지 확인
+            if (resource.exists()) {
+                // 파일 읽기
+                java.nio.file.Path path = resource.getFile().toPath();
+                return new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
+            } else {
+                log.warn("이메일 템플릿을 찾을 수 없음: {}", templatePath);
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("템플릿 로드 중 오류 발생: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 재서명 요청 이메일 발송
+     */
+    public void sendCorrectionRequestEmail(String email, String name, String contractTitle, int fieldCount, String correctionUrl) {
+        try {
+            // 이메일 제목
+            String subject = "[타이어뱅크] " + contractTitle + " - 계약서 재서명 요청";
+            
+            // HTML 템플릿 사용
+            String htmlTemplate = getHtmlTemplate("correction_request");
+            
+            if (htmlTemplate != null) {
+                // 템플릿에 변수 치환
+                htmlTemplate = htmlTemplate.replace("{{name}}", name)
+                        .replace("{{contractTitle}}", contractTitle)
+                        .replace("{{fieldCount}}", String.valueOf(fieldCount))
+                        .replace("{{correctionUrl}}", correctionUrl);
+                
+                sendHtmlMessage(email, subject, htmlTemplate);
+                log.info("재서명 요청 이메일 발송 성공 - 수신자: {}, 계약서: {}", email, contractTitle);
+            } else {
+                // 템플릿 로드 실패시 인라인 HTML 사용
+                String htmlContent = "<html><body style='font-family: Arial, sans-serif;'>" +
+                    "<div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd;'>" +
+                    "<h2 style='color: #333;'>계약서 재서명 요청</h2>" +
+                    "<p>안녕하세요, <strong>" + name + "</strong>님</p>" +
+                    "<p><strong>" + contractTitle + "</strong> 계약서에 대한 재서명이 요청되었습니다.</p>" +
+                    "<p>관리자가 확인한 결과, <strong>" + fieldCount + "개</strong>의 필드에 대한 수정이 필요합니다.</p>" +
+                    "<p>아래 링크를 클릭하여 재서명을 진행해주세요.</p>" +
+                    "<p><strong>※ 본 링크는 24시간 동안 유효합니다.</strong></p>" +
+                    "<div style='margin: 30px 0;'>" +
+                    "<a href='" + correctionUrl + "' style='background-color: #3182F6; color: white; padding: 12px 20px; " +
+                    "text-decoration: none; border-radius: 4px; font-weight: bold;'>계약서 재서명하기</a>" +
+                    "</div>" +
+                    "<p>링크가 작동하지 않는 경우, 아래 URL을 브라우저에 복사하여 붙여넣기 해주세요:</p>" +
+                    "<p style='word-break: break-all; font-size: 12px; color: #666;'>" + correctionUrl + "</p>" +
+                    "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                    "<p>감사합니다.<br>타이어뱅크 드림</p>" +
+                    getEmailFooter() +
+                    "</div></body></html>";
+                
+                sendHtmlMessage(email, subject, htmlContent);
+                log.info("재서명 요청 이메일 발송 성공 (인라인 HTML) - 수신자: {}, 계약서: {}", email, contractTitle);
+            }
+        } catch (Exception e) {
+            log.error("재서명 요청 이메일 발송 실패: {}", e.getMessage(), e);
+            throw new RuntimeException("이메일 발송 중 오류가 발생했습니다: " + e.getMessage(), e);
+        }
+    }
 } 

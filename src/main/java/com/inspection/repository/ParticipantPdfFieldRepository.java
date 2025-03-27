@@ -14,6 +14,8 @@ public interface ParticipantPdfFieldRepository extends JpaRepository<Participant
     
     List<ParticipantPdfField> findByParticipantId(Long participantId);
     
+    List<ParticipantPdfField> findByParticipantIdAndPdfId(Long participantId, String pdfId);
+    
     Optional<ParticipantPdfField> findByPdfIdAndFieldName(String pdfId, String fieldName);
     
     List<ParticipantPdfField> findByNeedsCorrectionTrueAndParticipantId(Long participantId);

@@ -74,7 +74,8 @@ public class SecurityConfig {
                     "/api/email/**",
                     "/api/sms/**",
                     "/api/codes/**",
-                    "/api/signature/**"
+                    "/api/signature/**",
+                    "/api/participants/**"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/manager/**").hasRole("MANAGER")

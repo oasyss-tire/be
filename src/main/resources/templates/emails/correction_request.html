@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>재서명 요청</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header img {
+            max-width: 150px;
+        }
+        h1 {
+            color: #3182F6;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .content {
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .button-container {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #3182F6;
+            color: white;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .footer {
+            font-size: 12px;
+            color: #777;
+            text-align: center;
+            margin-top: 30px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd;">
+        <h2 style="color: #333;">계약서 재서명 요청</h2>
+        
+        <p>안녕하세요, <strong>{{name}}</strong>님</p>
+        
+        <p><strong>{{contractTitle}}</strong> 계약서에 대한 재서명이 요청되었습니다.</p>
+        
+        <p>관리자가 확인한 결과, <strong>{{fieldCount}}개</strong>의 필드에 대한 수정이 필요합니다.</p>
+        
+        <p>아래 링크를 통해 재서명 페이지로 이동하여 필요한 정보를 수정해 주세요.</p>
+        
+        <div style="margin: 30px 0;">
+            <a href="{{correctionUrl}}" style="background-color: #3182F6; color: white; padding: 12px 20px; text-decoration: none; border-radius: 4px; font-weight: bold;">계약서 재서명하기</a>
+        </div>
+        
+        <p><strong>※ 본 링크는 24시간 동안 유효합니다.</strong></p>
+        
+        <p>링크가 작동하지 않는 경우, 아래 URL을 브라우저에 복사하여 붙여넣기 해주세요:</p>
+        <p style="word-break: break-all; font-size: 12px; color: #666;">{{correctionUrl}}</p>
+        
+        <p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>
+        <p>감사합니다.<br>타이어뱅크 드림</p>
+        
+        <hr style="margin-top: 30px; border: 0; border-top: 1px solid #eee;">
+        <footer style="margin-top: 20px; color: #777; font-size: 12px;">
+            <p style="margin: 5px 0;">타이어뱅크 (본점)</p>
+            <p style="margin: 5px 0;">세종 한누리대로 350 8층 | 30121</p>
+            <p style="margin: 5px 0;">문의전화: 1599-7181</p>
+        </footer>
+    </div>
+</body>
+</html> 

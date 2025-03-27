@@ -55,7 +55,14 @@ public class SignatureController {
                     .body(new ErrorResponse("이 계약은 더 이상 유효하지 않습니다."));
             }
             
-            // 4. 응답 데이터 구성 (민감 정보 제외)
+            // 4. 재서명 필요 여부 확인
+            boolean needsResign = false;
+            if (participant.getTemplateMappings() != null && !participant.getTemplateMappings().isEmpty()) {
+                needsResign = participant.getTemplateMappings().stream()
+                    .anyMatch(mapping -> mapping.isNeedsResign());
+            }
+            
+            // 5. 응답 데이터 구성 (민감 정보 제외)
             Map<String, Object> response = new HashMap<>();
             response.put("isValid", true);
             response.put("participantId", participant.getId());
@@ -63,15 +70,26 @@ public class SignatureController {
             response.put("contractId", participant.getContract().getId());
             response.put("contractTitle", participant.getContract().getTitle());
             response.put("isSigned", participant.isSigned());
+            response.put("needsResign", needsResign);
             
-            // 이미 서명한 경우 추가 정보 제공
-            if (participant.isSigned()) {
+            // 6. 추가 상태 정보 제공
+            if (needsResign) {
+                response.put("message", "재서명이 필요한 계약입니다.");
+                response.put("resignRequestedAt", participant.getTemplateMappings().stream()
+                    .filter(m -> m.isNeedsResign())
+                    .findFirst()
+                    .map(m -> m.getResignRequestedAt())
+                    .orElse(null));
+            } else if (participant.isSigned()) {
                 response.put("signedAt", participant.getSignedAt());
                 response.put("message", "이미 서명이 완료된 계약입니다.");
             }
             
-            log.info("토큰 검증 성공 - 참여자: {}, 계약: {}", 
-                participant.getName(), participant.getContract().getTitle());
+            log.info("토큰 검증 성공 - 참여자: {}, 계약: {}, 서명상태: {}, 재서명필요: {}", 
+                participant.getName(), 
+                participant.getContract().getTitle(),
+                participant.isSigned() ? "완료" : "미완료",
+                needsResign ? "필요" : "불필요");
             
             return ResponseEntity.ok(response);
             

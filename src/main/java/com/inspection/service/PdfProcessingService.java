@@ -188,6 +188,16 @@ public class PdfProcessingService {
                 page.setAnnotations(new ArrayList<>());
             }
 
+            // 디버깅용 로그 - 필드 정보 출력
+            log.info("PDF에 {} 개의 필드 값을 추가합니다.", fields.size());
+            for (ParticipantPdfField field : fields) {
+                log.info("필드 정보 - ID: {}, PDF ID: {}, 필드명: {}, 타입: {}, 값: {}, 페이지: {}",
+                        field.getId(), field.getPdfId(), field.getFieldName(), field.getType(),
+                        field.getValue() != null && field.getValue().length() > 20 ? 
+                                field.getValue().substring(0, 20) + "..." : field.getValue(),
+                        field.getPage());
+            }
+
             // 값만 추가
             for (ParticipantPdfField field : fields) {
                 if (field.getValue() == null || field.getValue().isEmpty()) {
@@ -217,6 +227,8 @@ public class PdfProcessingService {
                             }
                         }
                     }
+                } catch (Exception e) {
+                    log.error("필드 {} 추가 중 오류 발생: {}", field.getFieldName(), e.getMessage(), e);
                 }
             }
             

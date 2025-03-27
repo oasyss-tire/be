@@ -47,4 +47,12 @@ public class ParticipantTemplateMapping {
     
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+    
+    // 재서명 관련 필드
+    private boolean needsResign = false;           // 재서명 필요 여부
+    private LocalDateTime resignRequestedAt;       // 재서명 요청 시간
+    
+    // 재서명 PDF 관련 필드
+    private String resignedPdfId;                  // 재서명 완료된 PDF ID
+    private LocalDateTime resignedAt;              // 재서명 완료 시간
 } 

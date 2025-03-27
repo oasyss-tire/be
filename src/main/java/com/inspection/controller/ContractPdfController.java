@@ -11,14 +11,17 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.Objects;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -37,38 +40,31 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.dto.ContractPdfFieldDTO;
 import com.inspection.dto.ContractTemplateDTO;
+import com.inspection.dto.ParticipantPdfFieldDTO;
 import com.inspection.dto.SaveContractPdfFieldsRequest;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
-import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.entity.ParticipantPdfField;
+import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.exception.ValidationException;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractTemplateRepository;
-import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
+import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.service.ContractPdfService;
 import com.inspection.service.ContractTemplateService;
 import com.inspection.service.EmailService;
 import com.inspection.service.PdfProcessingService;
 import com.inspection.service.PdfStorageService;
 import com.inspection.util.EncryptionUtil;
-
 import com.lowagie.text.pdf.PdfReader;
 import com.lowagie.text.pdf.PdfStamper;
 import com.lowagie.text.pdf.PdfWriter;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-
-import com.inspection.dto.ParticipantPdfFieldDTO;
 
 @Slf4j
 @RestController
@@ -431,7 +427,7 @@ public class ContractPdfController {
             String signedPdfId = pdfId;
             
             // pdfId가 원본 PDF ID인 경우, 해당 매핑에서 서명된 PDF ID 조회
-            if (!pdfId.startsWith("signed_")) {
+            if (!pdfId.startsWith("signed_") && !pdfId.startsWith("resigned_")) {
                 ParticipantTemplateMapping mapping = templateMappingRepository.findByPdfId(pdfId)
                     .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
                 
@@ -442,8 +438,13 @@ public class ContractPdfController {
                 signedPdfId = mapping.getSignedPdfId();
             }
             
-            // 경로 수정
-            Path signedPath = Paths.get(uploadPath, "signed", signedPdfId);
+            // 경로 결정 (일반 서명 또는 재서명)
+            Path signedPath;
+            if (pdfId.startsWith("resigned_")) {
+                signedPath = Paths.get(uploadPath, "resigned", pdfId);
+            } else {
+                signedPath = Paths.get(uploadPath, "signed", signedPdfId);
+            }
             
             if (!Files.exists(signedPath)) {
                 log.warn("PDF not found at path: {}", signedPath);
@@ -487,15 +488,32 @@ public class ContractPdfController {
             }
             
             // 각 템플릿의 서명된 PDF 경로와 이름을 응답
-            List<Map<String, String>> signedPdfs = mappings.stream()
-                .filter(mapping -> mapping.getSignedPdfId() != null)
+            List<Map<String, Object>> signedPdfs = mappings.stream()
                 .map(mapping -> {
-                    Map<String, String> pdfInfo = new HashMap<>();
-                    pdfInfo.put("pdfId", mapping.getSignedPdfId());
-                    pdfInfo.put("templateName", mapping.getContractTemplateMapping().getTemplate().getTemplateName());
-                    pdfInfo.put("downloadUrl", "/api/contract-pdf/download-signed-pdf/" + mapping.getSignedPdfId());
-                    return pdfInfo;
+                    // 재서명된 PDF가 있는 경우 재서명 PDF 정보만 반환
+                    if (mapping.getResignedPdfId() != null) {
+                        Map<String, Object> resignedInfo = new HashMap<>();
+                        resignedInfo.put("pdfId", mapping.getResignedPdfId());
+                        resignedInfo.put("templateName", mapping.getContractTemplateMapping().getTemplate().getTemplateName() + " (재서명)");
+                        resignedInfo.put("downloadUrl", "/api/contract-pdf/download-signed-pdf/" + mapping.getResignedPdfId());
+                        resignedInfo.put("isResigned", true);
+                        resignedInfo.put("signedAt", mapping.getResignedAt());
+                        return resignedInfo;
+                    } 
+                    // 재서명된 PDF가 없는 경우 원본 서명 PDF 정보 반환
+                    else if (mapping.getSignedPdfId() != null) {
+                        Map<String, Object> pdfInfo = new HashMap<>();
+                        pdfInfo.put("pdfId", mapping.getSignedPdfId());
+                        pdfInfo.put("templateName", mapping.getContractTemplateMapping().getTemplate().getTemplateName());
+                        pdfInfo.put("downloadUrl", "/api/contract-pdf/download-signed-pdf/" + mapping.getSignedPdfId());
+                        pdfInfo.put("isResigned", false);
+                        pdfInfo.put("signedAt", mapping.getSignedAt());
+                        return pdfInfo;
+                    }
+                    
+                    return null;
                 })
+                .filter(Objects::nonNull) // null 값 제거
                 .collect(Collectors.toList());
             
             return ResponseEntity.ok(signedPdfs);
@@ -599,7 +617,7 @@ public class ContractPdfController {
             String signedPdfId = pdfId;
             
             // pdfId가 원본 PDF ID인 경우, 해당 매핑에서 서명된 PDF ID 조회
-            if (!pdfId.startsWith("signed_")) {
+            if (!pdfId.startsWith("signed_") && !pdfId.startsWith("resigned_")) {
                 ParticipantTemplateMapping mapping = templateMappingRepository.findByPdfId(pdfId)
                     .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
                 
@@ -610,8 +628,13 @@ public class ContractPdfController {
                 signedPdfId = mapping.getSignedPdfId();
             }
             
-            // 경로 수정
-            Path signedPath = Paths.get(uploadPath, "signed", signedPdfId);
+            // 경로 결정 (일반 서명 또는 재서명)
+            Path signedPath;
+            if (pdfId.startsWith("resigned_")) {
+                signedPath = Paths.get(uploadPath, "resigned", pdfId);
+            } else {
+                signedPath = Paths.get(uploadPath, "signed", signedPdfId);
+            }
             
             if (!Files.exists(signedPath)) {
                 log.warn("PDF not found at path: {}", signedPath);
