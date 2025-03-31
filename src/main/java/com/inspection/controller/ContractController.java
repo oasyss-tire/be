@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.dto.ContractDTO;
 import com.inspection.dto.CreateContractRequest;
@@ -23,7 +24,9 @@ import com.inspection.entity.Contract;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.entity.ParticipantResignHistory;
+import com.inspection.entity.ParticipantDocument;
 import com.inspection.service.ContractService;
+import com.inspection.service.ParticipantDocumentService;
 import com.inspection.dto.PhoneVerificationRequest;
 import com.inspection.dto.ErrorResponse;
 import com.inspection.util.EncryptionUtil;
@@ -55,11 +58,15 @@ public class ContractController {
     private final EmailService emailService;
     private final SMSService smsService;
     private final EncryptionUtil encryptionUtil;
+    private final ParticipantDocumentService participantDocumentService;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
     
-    // 계약 생성
+    /**
+     * 계약 생성 API
+     * 계약 정보, 참여자 정보, 템플릿 목록, 필요 문서 코드 목록을 받아 계약을 생성합니다.
+     */
     @PostMapping
     public ResponseEntity<ContractDTO> createContract(@RequestBody CreateContractRequest request) {
         log.info("Contract creation request received: {}", request.getTitle());
@@ -564,6 +571,41 @@ public class ContractController {
             log.error("Error starting participant signing", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("서명 시작 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+    
+    
+    /**
+     * 참여자 문서 업로드 API
+     * 참여자가 문서를 업로드할 때 호출됩니다.
+     */
+    @PostMapping("/{contractId}/participants/{participantId}/documents/{documentCodeId}")
+    public ResponseEntity<?> uploadParticipantDocument(
+        @PathVariable Long contractId,
+        @PathVariable Long participantId,
+        @PathVariable String documentCodeId,
+        @RequestParam("file") MultipartFile file
+    ) {
+        try {
+            if (file.isEmpty()) {
+                return ResponseEntity.badRequest().body(
+                    new ErrorResponse("업로드할 파일이 비어있습니다.")
+                );
+            }
+            
+            ParticipantDocument document = participantDocumentService.uploadDocument(
+                contractId, participantId, documentCodeId, file);
+                
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "파일이 성공적으로 업로드되었습니다.",
+                "documentId", document.getId(),
+                "fileName", document.getOriginalFileName()
+            ));
+        } catch (Exception e) {
+            log.error("문서 업로드 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("파일 업로드 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
 }

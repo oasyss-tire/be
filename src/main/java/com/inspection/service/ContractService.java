@@ -6,9 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.beans.factory.annotation.Value;
 
 import com.inspection.dto.CreateContractRequest;
 import com.inspection.dto.CreateParticipantRequest;
@@ -20,23 +20,20 @@ import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ContractTemplateMapping;
+import com.inspection.entity.ParticipantPdfField;
 import com.inspection.entity.ParticipantResignHistory;
 import com.inspection.entity.ParticipantTemplateMapping;
-import com.inspection.entity.ParticipantPdfField;
+import com.inspection.enums.NotificationType;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ContractTemplateRepository;
-import com.inspection.util.EncryptionUtil;
+import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.repository.ParticipantResignHistoryRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
-import com.inspection.repository.ParticipantPdfFieldRepository;
-import com.inspection.service.EmailService;
-import com.inspection.service.SMSService;
-import com.inspection.service.ParticipantTokenService;
-import com.inspection.enums.NotificationType;
+import com.inspection.util.EncryptionUtil;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +58,7 @@ public class ContractService {
     private final ParticipantTokenService participantTokenService;
     private final ParticipantTemplateMappingRepository participantTemplateMappingRepository;
     private final ParticipantPdfFieldRepository participantPdfFieldRepository;
+    private final ParticipantDocumentService participantDocumentService;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
@@ -244,6 +242,18 @@ public class ContractService {
         Contract finalContract = contractRepository.save(contract);
         log.info("Contract created successfully: {}, contractNumber: {}", 
             finalContract.getId(), finalContract.getContractNumber());
+        
+        // 7. 필요한 문서 설정 (요구사항에 명시된 문서 코드가 있는 경우에만)
+        if (request.getDocumentCodeIds() != null && !request.getDocumentCodeIds().isEmpty()) {
+            try {
+                participantDocumentService.setupContractDocuments(finalContract.getId(), request.getDocumentCodeIds());
+                log.info("Contract document requirements set: contractId={}, documentCodeCount={}", 
+                    finalContract.getId(), request.getDocumentCodeIds().size());
+            } catch (Exception e) {
+                log.error("Error setting up contract documents", e);
+                // 문서 요구사항 설정 실패는 계약 생성 자체를 실패시키지 않음
+            }
+        }
         
         return finalContract;
     }

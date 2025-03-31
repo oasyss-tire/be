@@ -22,5 +22,7 @@ public class CreateContractRequest {
     private String createdBy;               // 계약 작성자
     private String department;              // 담당 부서
     private List<CreateParticipantRequest> participants;  // 서명 참여자 목록
+    
+    private List<String> documentCodeIds;   // 참여자가 업로드해야 할 문서 코드 목록
 }
 
