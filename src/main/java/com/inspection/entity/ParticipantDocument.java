@@ -44,6 +44,11 @@ public class ParticipantDocument {
     private String fileId;                  // 저장된 파일 경로 또는 ID
     private String originalFileName;        // 원본 파일명
     
+    // 재서명 관련 필드
+    private Boolean needsCorrection = false;      // 재업로드 필요 여부
+    private String correctionComment;             // 재업로드 요청 코멘트
+    private LocalDateTime correctionRequestedAt;  // 재업로드 요청 시간
+    
     // 시간 필드
     @CreatedDate
     @Column(nullable = false, updatable = false)

@@ -1,5 +1,16 @@
 package com.inspection.service;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
 import com.inspection.entity.Code;
 import com.inspection.entity.Contract;
 import com.inspection.entity.ContractParticipant;
@@ -8,18 +19,9 @@ import com.inspection.repository.CodeRepository;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ParticipantDocumentRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -208,14 +210,19 @@ public class ParticipantDocumentService {
     }
     
     /**
-     * 문서 삭제 (파일만 삭제, 레코드는 유지)
+     * 참여자 문서 파일 삭제
      */
-    public void deleteDocumentFile(Long documentId) throws IOException {
-        ParticipantDocument document = participantDocumentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("문서를 찾을 수 없습니다: " + documentId));
+    public ParticipantDocument deleteDocumentFile(Long documentId) throws IOException {
+        // 문서 조회
+        ParticipantDocument document = getDocumentById(documentId);
         
-        if (document.getFileId() != null) {
-            // 파일 삭제
+        if (document.getFileId() == null || document.getFileId().isEmpty()) {
+            log.warn("삭제할 파일이 없습니다: 문서ID={}", documentId);
+            return document;
+        }
+        
+        try {
+            // 저장된 파일 삭제
             docsFileStorageService.deleteFile(document.getFileId());
             
             // 문서 정보 업데이트
@@ -223,7 +230,16 @@ public class ParticipantDocumentService {
             document.setOriginalFileName(null);
             document.setUploadedAt(null);
             
-            participantDocumentRepository.save(document);
+            log.info("문서 파일 삭제 완료: 문서ID={}, 계약ID={}, 참여자ID={}, 문서코드={}", 
+                    documentId, 
+                    document.getContract().getId(), 
+                    document.getParticipant().getId(), 
+                    document.getDocumentCode().getCodeId());
+            
+            return participantDocumentRepository.save(document);
+        } catch (IOException e) {
+            log.error("문서 파일 삭제 실패: 문서ID={}", documentId, e);
+            throw e;
         }
     }
     
