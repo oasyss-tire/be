@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 public interface ParticipantTemplateMappingRepository extends JpaRepository<ParticipantTemplateMapping, Long> {
     List<ParticipantTemplateMapping> findByParticipantId(Long participantId);
     Optional<ParticipantTemplateMapping> findByPdfId(String pdfId);
+    Optional<ParticipantTemplateMapping> findBySignedPdfId(String signedPdfId);
     Optional<ParticipantTemplateMapping> findByParticipant_IdAndContractTemplateMapping_Template_Id(Long participantId, Long templateId);
     
     // 참여자 ID로 모든 템플릿 매핑 조회

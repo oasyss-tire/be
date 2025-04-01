@@ -11,12 +11,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import java.util.Objects;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -28,6 +29,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -840,7 +843,9 @@ public class ContractPdfController {
                 // 시리얼 넘버 생성 또는 가져오기
                 String serialNumber = mapping.getSerialNumber();
                 if (serialNumber == null || serialNumber.isEmpty()) {
-                    serialNumber = generateSerialNumber();
+                    // 계약 정보로 시리얼 넘버 생성
+                    String contractInfo = pdfFile.getName() + "_" + participantId + "_" + LocalDateTime.now().toString();
+                    serialNumber = generateSerialNumber(contractInfo);
                     mapping.setSerialNumber(serialNumber);
                 }
                 
@@ -928,23 +933,107 @@ public class ContractPdfController {
     }
 
     /**
-     * 시리얼 넘버를 생성합니다.
-     * @return 50자리 시리얼 넘버
+     * 계약서 비밀번호 조회
      */
-    private String generateSerialNumber() {
-        // 5자리씩 10개 블록, 총 50자리 (하이픈 포함 59자)
-        StringBuilder sb = new StringBuilder();
-        SecureRandom random = new SecureRandom();
-        String chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        
-        for (int block = 0; block < 10; block++) {
-            for (int i = 0; i < 5; i++) {
-                sb.append(chars.charAt(random.nextInt(chars.length())));
+    @GetMapping("/password/{signedPdfId}")
+    public ResponseEntity<Map<String, String>> getPdfPassword(
+            @PathVariable String signedPdfId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        try {
+            // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회)
+            ParticipantTemplateMapping templateMapping = templateMappingRepository.findBySignedPdfId(signedPdfId)
+                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + signedPdfId));
+            
+            // 2. 참여자 정보 조회
+            ContractParticipant participant = templateMapping.getParticipant();
+            
+            // 3. 현재 로그인한 사용자가 해당 참여자인지 확인
+            if (participant.getUser() == null || 
+                !participant.getUser().getUserId().equals(userDetails.getUsername())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
-            if (block < 9) sb.append("-");
+            
+            // 4. 저장된 암호화된 비밀번호 조회
+            String encryptedPassword = templateMapping.getDocumentPassword();
+            if (encryptedPassword == null || encryptedPassword.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            // 5. 비밀번호 복호화
+            String password = encryptionUtil.decrypt(encryptedPassword);
+            
+            Map<String, String> response = new HashMap<>();
+            response.put("password", password);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("계약서 비밀번호 조회 중 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        
-        return sb.toString();
+    }
+    
+    /**
+     * 계약서 비밀번호 이메일 재전송
+     */
+    @PostMapping("/password/{signedPdfId}/send-email")
+    public ResponseEntity<Map<String, String>> sendPasswordEmail(
+            @PathVariable String signedPdfId,
+            @RequestParam(required = false) String token) {
+        try {
+            // URL 디코딩
+            String decodedPdfId = java.net.URLDecoder.decode(signedPdfId, StandardCharsets.UTF_8.name());
+            log.info("디코딩된 PDF ID: {}", decodedPdfId);
+            
+            // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회)
+            ParticipantTemplateMapping templateMapping = templateMappingRepository.findBySignedPdfId(decodedPdfId)
+                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + decodedPdfId));
+            
+            // 2. 참여자 정보 조회
+            ContractParticipant participant = templateMapping.getParticipant();
+            
+            // 3. 인증 확인 (토큰이 제공된 경우 userDetails 체크 생략)
+            if (token == null || token.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Collections.singletonMap("message", "인증 정보가 없습니다."));
+            }
+            
+            // 4. 저장된 암호화된 비밀번호 조회
+            String encryptedPassword = templateMapping.getDocumentPassword();
+            if (encryptedPassword == null || encryptedPassword.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Collections.singletonMap("message", "비밀번호 정보가 없습니다."));
+            }
+            
+            // 5. 비밀번호 복호화
+            String password = encryptionUtil.decrypt(encryptedPassword);
+            
+            // 6. 이메일로 비밀번호 전송
+            if (participant.getEmail() != null && !participant.getEmail().isEmpty()) {
+                String decryptedEmail = encryptionUtil.decrypt(participant.getEmail());
+                emailService.sendPdfPasswordEmail(
+                    decryptedEmail,
+                    participant.getName(),
+                    password,
+                    decodedPdfId
+                );
+                
+                Map<String, String> response = new HashMap<>();
+                response.put("message", "비밀번호가 이메일로 전송되었습니다.");
+                response.put("email", decryptedEmail.substring(0, 3) + "***" + 
+                    decryptedEmail.substring(decryptedEmail.indexOf('@')));
+                
+                return ResponseEntity.ok(response);
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Collections.singletonMap("message", "이메일 정보가 없습니다."));
+            }
+            
+        } catch (Exception e) {
+            log.error("계약서 비밀번호 이메일 전송 중 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Collections.singletonMap("message", "비밀번호 이메일 전송 중 오류가 발생했습니다."));
+        }
     }
 
 } 

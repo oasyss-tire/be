@@ -1,15 +1,17 @@
 package com.inspection.dto;
 
-import lombok.Getter;
-import lombok.Setter;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.entity.ParticipantToken;
 import com.inspection.enums.NotificationType;
 import com.inspection.util.EncryptionUtil;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
+
+import lombok.Getter;
+import lombok.Setter;
 
 @Getter @Setter
 public class ParticipantDTO {
@@ -102,6 +104,7 @@ public class ParticipantDTO {
         private String signedPdfId;
         private boolean signed;
         private LocalDateTime signedAt;
+        private boolean hasPassword;  // 비밀번호 존재 여부
         
         public TemplatePdfInfo(ParticipantTemplateMapping mapping) {
             if (mapping.getContractTemplateMapping() != null) {
@@ -113,6 +116,7 @@ public class ParticipantDTO {
             this.signedPdfId = mapping.getSignedPdfId();
             this.signed = mapping.isSigned();
             this.signedAt = mapping.getSignedAt();
+            this.hasPassword = mapping.getDocumentPassword() != null && !mapping.getDocumentPassword().isEmpty();
         }
     }
     
