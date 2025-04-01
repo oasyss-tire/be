@@ -8,4 +8,4 @@ application-prod.yml
 application-test.yml
 application-local.yml
 application-local.yml
-
+uploads/
