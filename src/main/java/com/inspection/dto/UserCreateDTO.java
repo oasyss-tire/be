@@ -2,6 +2,7 @@ package com.inspection.dto;
 
 import com.inspection.entity.Role;
 import com.inspection.entity.User;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,6 +14,7 @@ public class UserCreateDTO {
     private Role role = Role.MANAGER;  // 권한
     private String phoneNumber; // 전화번호
     private String email;       // 이메일
+    private Long companyId;     // 회사 ID
 
     public User toEntity() {
         User user = new User();

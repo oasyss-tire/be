@@ -1,6 +1,7 @@
 package com.inspection.dto;
 
 import com.inspection.entity.User;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,6 +14,11 @@ public class UserResponseDTO {
     private String phoneNumber; // 전화번호
     private String role;       // 권한
     private boolean active;    // 활성화 여부
+    
+    // Company 관련 필드
+    private Long companyId;    // 회사 ID
+    private String companyName; // 회사명
+    private String storeCode;   // 매장코드
 
     public UserResponseDTO(User user) {
         this.id = user.getId();
@@ -22,5 +28,12 @@ public class UserResponseDTO {
         this.phoneNumber = user.getPhoneNumber();
         this.role = user.getRole().name();
         this.active = user.isActive();
+        
+        // Company 정보 설정
+        if (user.getCompany() != null) {
+            this.companyId = user.getCompany().getId();
+            this.companyName = user.getCompany().getStoreName();
+            this.storeCode = user.getCompany().getStoreCode();
+        }
     }
 } 

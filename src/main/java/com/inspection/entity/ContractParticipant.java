@@ -30,6 +30,11 @@ public class ContractParticipant {
     @JoinColumn(name = "status_code_id")
     private Code statusCode;               // 참여자 상태 코드 (서명대기/서명중/승인대기/승인완료/승인거부)
     
+    // 연결된 User 정보 (사용자가 로그인한 경우)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;                     // 연결된 사용자 (null 가능)
+    
     // 기존 필드 유지 (호환성)
     private boolean signed;                // 서명 여부 (호환성 유지)
     private LocalDateTime signedAt;         // 서명 일시

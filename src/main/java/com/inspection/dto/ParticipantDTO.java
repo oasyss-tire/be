@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.entity.ParticipantToken;
 import com.inspection.enums.NotificationType;
 import com.inspection.util.EncryptionUtil;
 import java.time.LocalDateTime;
@@ -37,6 +38,13 @@ public class ParticipantDTO {
     
     // 템플릿별 PDF 정보
     private List<TemplatePdfInfo> templatePdfs;
+
+    // User 정보 (로그인된 사용자와 연결된 경우)
+    private Long userId;
+    private String userLoginId;
+    
+    // 토큰 정보 추가
+    private List<TokenInfo> tokens;
 
     public ParticipantDTO(ContractParticipant participant, EncryptionUtil encryptionUtil) {
         this.id = participant.getId();
@@ -75,6 +83,14 @@ public class ParticipantDTO {
                 .map(mapping -> new TemplatePdfInfo(mapping))
                 .collect(Collectors.toList());
         }
+
+        // User 정보 설정
+        if (participant.getUser() != null) {
+            this.userId = participant.getUser().getId();
+            this.userLoginId = participant.getUser().getUserId();
+        }
+        
+        // 토큰 정보는 별도로 설정해야 함 (서비스에서 처리)
     }
     
     @Getter @Setter
@@ -97,6 +113,23 @@ public class ParticipantDTO {
             this.signedPdfId = mapping.getSignedPdfId();
             this.signed = mapping.isSigned();
             this.signedAt = mapping.getSignedAt();
+        }
+    }
+    
+    @Getter @Setter
+    public static class TokenInfo {
+        private Long id;
+        private String tokenValue;
+        private String tokenType;
+        private LocalDateTime expiresAt;
+        private boolean active;
+        
+        public TokenInfo(ParticipantToken token) {
+            this.id = token.getId();
+            this.tokenValue = token.getTokenValue();
+            this.tokenType = token.getTokenType().name();
+            this.expiresAt = token.getExpiresAt();
+            this.active = token.isActive();
         }
     }
 } 

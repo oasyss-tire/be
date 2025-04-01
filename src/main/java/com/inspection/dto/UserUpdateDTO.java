@@ -1,6 +1,7 @@
 package com.inspection.dto;
 
 import com.inspection.entity.Role;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -11,4 +12,5 @@ public class UserUpdateDTO {
     private String phoneNumber; // 전화번호
     private Role role;         // 권한
     private boolean active;     // 활성화 여부
+    private Long companyId;     // 회사 ID
 } 

@@ -15,4 +15,5 @@ public class CreateParticipantRequest {
     private LocalDateTime signedAt;
     private String pdfId;                   // PDF ID
     private String signedPdfId;             // 서명된 PDF ID
+    private Long userId;     // 연결할 사용자 ID (PK)
 } 

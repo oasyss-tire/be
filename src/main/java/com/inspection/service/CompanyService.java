@@ -9,9 +9,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.dto.CompanyDTO;
 import com.inspection.dto.CreateCompanyRequest;
+import com.inspection.dto.UserResponseDTO;
 import com.inspection.entity.Company;
 import com.inspection.entity.CompanyImage;
+import com.inspection.entity.User;
 import com.inspection.repository.CompanyRepository;
+import com.inspection.repository.UserRepository;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +27,8 @@ public class CompanyService {
     
     private final CompanyRepository companyRepository;
     private final CompanyImageStorageService companyImageStorageService;
+    private final UserRepository userRepository;
+    private final EncryptionUtil encryptionUtil;
     
     /**
      * 새로운 회사를 생성합니다.
@@ -419,5 +425,41 @@ public class CompanyService {
         
         Company savedCompany = companyRepository.save(company);
         return CompanyDTO.fromEntity(savedCompany);
+    }
+    
+    /**
+     * 회사에 소속된 사용자 목록을 조회합니다.
+     */
+    @Transactional(readOnly = true)
+    public List<UserResponseDTO> getUsersByCompanyId(Long companyId) {
+        // 회사가 존재하는지 확인
+        if (!companyRepository.existsById(companyId)) {
+            throw new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId);
+        }
+        
+        // 회사에 소속된 사용자 목록 조회
+        List<User> users = userRepository.findByCompanyId(companyId);
+        
+        // UserResponseDTO로 변환
+        return users.stream()
+            .map(user -> {
+                UserResponseDTO dto = new UserResponseDTO(user);
+                
+                // 이메일과 전화번호 복호화
+                try {
+                    if (user.getEmail() != null && !user.getEmail().isEmpty()) {
+                        dto.setEmail(encryptionUtil.decrypt(user.getEmail()));
+                    }
+                    
+                    if (user.getPhoneNumber() != null && !user.getPhoneNumber().isEmpty()) {
+                        dto.setPhoneNumber(encryptionUtil.decrypt(user.getPhoneNumber()));
+                    }
+                } catch (Exception e) {
+                    log.error("사용자 정보 복호화 중 오류: {}", e.getMessage());
+                }
+                
+                return dto;
+            })
+            .collect(Collectors.toList());
     }
 } 

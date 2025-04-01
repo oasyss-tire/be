@@ -34,6 +34,7 @@ import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.repository.ParticipantResignHistoryRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.util.EncryptionUtil;
+import com.inspection.repository.UserRepository;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +60,7 @@ public class ContractService {
     private final ParticipantTemplateMappingRepository participantTemplateMappingRepository;
     private final ParticipantPdfFieldRepository participantPdfFieldRepository;
     private final ParticipantDocumentService participantDocumentService;
+    private final UserRepository userRepository;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
@@ -311,6 +313,12 @@ public class ContractService {
         Code initialStatus = codeRepository.findById(PARTICIPANT_STATUS_WAITING)
             .orElseThrow(() -> new EntityNotFoundException("서명 대기 상태 코드를 찾을 수 없습니다: " + PARTICIPANT_STATUS_WAITING));
         participant.setStatusCode(initialStatus);
+        
+        // 참여자와 User 연결 (userId가 제공된 경우)
+        if (participantRequest.getUserId() != null) {
+            userRepository.findById(participantRequest.getUserId())
+                .ifPresent(user -> participant.setUser(user));
+        }
         
         return participant;
     }

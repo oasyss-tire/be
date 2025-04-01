@@ -34,6 +34,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.dto.CompanyDTO;
 import com.inspection.dto.CreateCompanyRequest;
+import com.inspection.dto.UserResponseDTO;
 import com.inspection.service.CompanyService;
 import com.inspection.service.CompanyImageStorageService;
 
@@ -280,6 +281,20 @@ public class CompanyController {
         } catch (IOException e) {
             log.error("이미지 파일 로드 실패: {}", e.getMessage());
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 회사에 소속된 사용자 목록 조회
+     */
+    @GetMapping("/{companyId}/users")
+    public ResponseEntity<List<UserResponseDTO>> getCompanyUsers(@PathVariable Long companyId) {
+        try {
+            List<UserResponseDTO> users = companyService.getUsersByCompanyId(companyId);
+            return ResponseEntity.ok(users);
+        } catch (Exception e) {
+            log.error("회사 사용자 목록 조회 실패: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
         }
     }
 } 

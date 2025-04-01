@@ -15,7 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 import com.inspection.dto.UserCreateDTO;
 import com.inspection.dto.UserResponseDTO;
 import com.inspection.dto.UserUpdateDTO;
+import com.inspection.entity.Company;
 import com.inspection.entity.User;
+import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
 import com.inspection.util.PasswordValidator;
@@ -27,6 +29,7 @@ import lombok.RequiredArgsConstructor;
 public class UserService implements UserDetailsService {
     
     private final UserRepository userRepository;
+    private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final EncryptionUtil aesEncryption;
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
@@ -70,6 +73,13 @@ public class UserService implements UserDetailsService {
 
         if (userRepository.existsByUserId(user.getUserId())) {
             throw new RuntimeException("이미 존재하는 사용자 ID입니다.");
+        }
+        
+        // Company 설정
+        if (userCreateDTO.getCompanyId() != null) {
+            Company company = companyRepository.findById(userCreateDTO.getCompanyId())
+                .orElseThrow(() -> new RuntimeException("회사 정보를 찾을 수 없습니다. ID: " + userCreateDTO.getCompanyId()));
+            user.setCompany(company);
         }
 
         return userRepository.save(user);
@@ -152,6 +162,15 @@ public class UserService implements UserDetailsService {
         
         user.setRole(userUpdateDTO.getRole());
         user.setActive(userUpdateDTO.isActive());
+        
+        // Company 설정
+        if (userUpdateDTO.getCompanyId() != null) {
+            Company company = companyRepository.findById(userUpdateDTO.getCompanyId())
+                .orElseThrow(() -> new RuntimeException("회사 정보를 찾을 수 없습니다. ID: " + userUpdateDTO.getCompanyId()));
+            user.setCompany(company);
+        } else {
+            user.setCompany(null); // Company 연결 해제
+        }
         
         return userRepository.save(user);
     }
