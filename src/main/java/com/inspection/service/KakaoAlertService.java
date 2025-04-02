@@ -1,28 +1,31 @@
 package com.inspection.service;
 
-import org.springframework.stereotype.Service;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.InputStream;
+import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.io.InputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintWriter;
 import java.net.URLEncoder;
-import java.util.Hashtable;
-import java.util.Enumeration;
-import lombok.extern.slf4j.Slf4j;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import java.io.DataOutputStream;
-import java.io.BufferedOutputStream;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.inspection.entity.KakaoAlert;
-import com.inspection.repository.KakaoAlertRepository;
 import java.time.LocalDateTime;
+import java.util.Enumeration;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inspection.dto.KakaoAlertDTO;
+import com.inspection.entity.KakaoAlert;
+import com.inspection.repository.KakaoAlertRepository;
 import com.inspection.repository.UserRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @Slf4j
@@ -38,31 +41,36 @@ public class KakaoAlertService {
     @Value("${eon.sender-phone}")
     private String senderPhone;
     
-    public void sendAlert(String phoneNumber, String message, Long userId) {
+    public void sendAlert(String phoneNumber, String name, String title, String requester, String contractDate, String url, Long userId) {
         try {
             Hashtable<String, String> param = new Hashtable<>();
             param.put("STYPE", "4");                // 알림톡
             param.put("RESERVETIME", "");           
             param.put("SENDPHONE", senderPhone);    
             param.put("DESTPHONE", phoneNumber);    
-            param.put("SUBJECT", "점검 결과 안내 보고서");   
+            param.put("SUBJECT", "[타이어뱅크] 계약서 서명 요청");
             
-            // 템플릿 내용과 정확히 일치
-            param.put("MSG", 
-                "[점검 결과 보고서]\n" +
-                "안녕하세요. 고객님,\n" +
-                "고객님의 사업장에\n" +
-                "안전 점검이 완료되었습니다.\n" +
-                "\n" +
-                "▣ 점검결과 상세보기"
-            );              
+            // 메시지에 변수 직접 치환
+            String message = "[타이어뱅크] 계약서 서명 요청\n\n"
+                + name + "님, 서명 요청이 도착했습니다.\n\n"
+                + "▶계약명 : " + title + "\n"
+                + "▶요청자 : " + requester + "\n"
+                + "▶서명자 : " + name + "\n"
+                + "▶서명기한 : " + contractDate + "\n\n"
+                + title + " 계약의 서명이 요청되었습니다.\n"
+                + "아래 링크를 클릭하여 서명을 진행해주세요.\n\n"
+                + "※ 본 링크는 24시간 동안 유효합니다.";
+            
+            param.put("MSG", message);
             
             // 알림톡 템플릿 코드
-            param.put("TALK_TEMPLAT", "OAAS_REP_002");
+            param.put("TALK_TEMPLAT", "TIRE_CT_002");
             
             // 버튼 설정
-            param.put("TALK_BTN1_NAME", "점검보고서");    
-            param.put("TALK_BTN1_URL", String.format("https://%s", message));
+            param.put("TALK_BTN1_NAME", "계약서 서명하기");    
+            param.put("TALK_BTN1_URL", String.format("https://%s", url));
+            
+            log.info("Sending parameters: {}", param);
             
             // multipart/form-data 대신 일반 POST 요청 사용
             String response = sendEonRequest("http://blue3.eonmail.co.kr:8081/weom/servlet/api.EONASP6", param);
@@ -79,7 +87,7 @@ public class KakaoAlertService {
                     KakaoAlert alert = new KakaoAlert();
                     alert.setUserId(userId);
                     alert.setReceiverPhone(phoneNumber);
-                    alert.setMessage(message);
+                    alert.setMessage(url);
                     alert.setCpId(cpId);
                     alert.setSentAt(LocalDateTime.now());
                     

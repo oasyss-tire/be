@@ -55,8 +55,9 @@ public class ParticipantToken {
      * 토큰 유형
      */
     public enum TokenType {
-        SIGNATURE, // 서명 토큰 (24시간)
-        LONG_TERM  // 장기 보관 토큰 (2년)
+        SIGNATURE,      // 이메일 서명 토큰 (24시간)
+        SIGNATURE_KAKAO, // 카카오 알림톡 서명 토큰 (24시간)
+        LONG_TERM       // 장기 보관 토큰 (2년)
     }
     
     /**

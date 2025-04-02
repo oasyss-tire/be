@@ -938,19 +938,23 @@ public class ContractPdfController {
     @GetMapping("/password/{signedPdfId}")
     public ResponseEntity<Map<String, String>> getPdfPassword(
             @PathVariable String signedPdfId,
-            @AuthenticationPrincipal UserDetails userDetails) {
+            @RequestParam(required = false) String token) {
         try {
+            // URL 디코딩
+            String decodedPdfId = java.net.URLDecoder.decode(signedPdfId, StandardCharsets.UTF_8.name());
+            log.info("디코딩된 PDF ID: {}", decodedPdfId);
+            
             // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회)
-            ParticipantTemplateMapping templateMapping = templateMappingRepository.findBySignedPdfId(signedPdfId)
-                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + signedPdfId));
+            ParticipantTemplateMapping templateMapping = templateMappingRepository.findBySignedPdfId(decodedPdfId)
+                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + decodedPdfId));
             
             // 2. 참여자 정보 조회
             ContractParticipant participant = templateMapping.getParticipant();
             
-            // 3. 현재 로그인한 사용자가 해당 참여자인지 확인
-            if (participant.getUser() == null || 
-                !participant.getUser().getUserId().equals(userDetails.getUsername())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            // 3. 인증 확인 (토큰이 제공된 경우 userDetails 체크 생략)
+            if (token == null || token.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Collections.singletonMap("message", "인증 정보가 없습니다."));
             }
             
             // 4. 저장된 암호화된 비밀번호 조회

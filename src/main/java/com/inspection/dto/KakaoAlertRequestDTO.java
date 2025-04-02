@@ -1,17 +1,19 @@
 package com.inspection.dto;
 
 import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Getter @Setter
-
 public class KakaoAlertRequestDTO {
-    private String phoneNumber;  // 수신자 전화번호
-    private String message;      // 전송할 메시지
+    private String phoneNumber;
+    private String name;
+    private String title;
+    private String requester;
+    private String contractDate;
+    private String url;
 } 

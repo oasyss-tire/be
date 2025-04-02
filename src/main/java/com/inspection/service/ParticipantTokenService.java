@@ -193,4 +193,25 @@ public class ParticipantTokenService {
         log.info("토큰이 데이터베이스에 저장되었습니다: 참여자ID={}, 토큰타입={}, 만료일={}", 
                  participantId, tokenType, expiresAt);
     }
+
+    /**
+     * 참여자 ID 기반으로 카카오 알림톡 서명용 토큰을 생성합니다.
+     * 기본 유효기간은 24시간입니다.
+     * 
+     * @param participantId 참여자 ID
+     * @return 생성된 토큰
+     */
+    @Transactional
+    public String generateKakaoSignatureToken(Long participantId) {
+        // 24시간 유효한 토큰 생성 (밀리초 단위)
+        long validityInMilliseconds = 24 * 60 * 60 * 1000;
+        
+        String token = jwtTokenProvider.createParticipantToken(participantId, validityInMilliseconds);
+        log.info("참여자 ID {}에 대한 카카오 알림톡 토큰이 생성되었습니다.", participantId);
+        
+        // 토큰 정보를 DB에 저장
+        saveTokenToDatabase(participantId, token, TokenType.SIGNATURE_KAKAO, validityInMilliseconds);
+        
+        return token;
+    }
 } 
