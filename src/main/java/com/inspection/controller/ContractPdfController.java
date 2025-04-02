@@ -581,8 +581,16 @@ public class ContractPdfController {
             contractTemplateRepository.findByTemplateNameContaining(keyword) :
             contractTemplateService.getAllTemplates();
         
+        // 최신순(생성일 기준) 정렬 적용
         List<ContractTemplateDTO> dtos = templates.stream()
             .map(ContractTemplateDTO::new)
+            .sorted((a, b) -> {
+                // CreatedAt이 null인 경우 처리
+                if (a.getCreatedAt() == null) return 1;
+                if (b.getCreatedAt() == null) return -1;
+                // 내림차순 정렬 (최신순)
+                return b.getCreatedAt().compareTo(a.getCreatedAt());
+            })
             .collect(Collectors.toList());
         
         return ResponseEntity.ok(dtos);
