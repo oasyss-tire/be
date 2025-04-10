@@ -68,6 +68,7 @@ public class SecurityConfig {
                     "/api/fire-safety-inspections/**",
                     "/api/contracts/**",
                     "/api/facilities/**",
+                    "/api/facility-images/**",
                     "/api/pdf/**",
                     "/api/contract-pdf/**",
                     "/api/contract-templates/**",
@@ -75,7 +76,8 @@ public class SecurityConfig {
                     "/api/sms/**",
                     "/api/codes/**",
                     "/api/signature/**",
-                    "/api/participants/**"
+                    "/api/participants/**",
+                    "/api/brands/**"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/manager/**").hasRole("MANAGER")
