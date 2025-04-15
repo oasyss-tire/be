@@ -1,11 +1,12 @@
 package com.inspection.dto;
 
+import java.time.LocalDateTime;
+
 import com.inspection.entity.ParticipantPdfField;
+
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.LocalDateTime;
 
 @Getter
 @Setter
@@ -24,6 +25,7 @@ public class ParticipantPdfFieldDTO {
     private Double relativeHeight;
     private Integer page;
     private String value;
+    private String confirmText;
     private Boolean needsCorrection;
     private String correctionComment;
     private LocalDateTime correctionRequestedAt;
@@ -44,6 +46,7 @@ public class ParticipantPdfFieldDTO {
         this.relativeHeight = field.getRelativeHeight();
         this.page = field.getPage();
         this.value = field.getValue();
+        this.confirmText = field.getConfirmText();
         this.needsCorrection = field.getNeedsCorrection();
         this.correctionComment = field.getCorrectionComment();
         this.correctionRequestedAt = field.getCorrectionRequestedAt();

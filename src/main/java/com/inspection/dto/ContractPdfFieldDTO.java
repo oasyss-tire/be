@@ -1,9 +1,10 @@
 package com.inspection.dto;
 
-import lombok.Getter;
-import lombok.Setter;
-import lombok.NoArgsConstructor;
 import com.inspection.entity.ContractPdfField;
+
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
 @Setter
@@ -20,6 +21,7 @@ public class ContractPdfFieldDTO {
     private Double relativeHeight;
     private Integer page;
     private String value;
+    private String confirmText;
 
     public ContractPdfFieldDTO(ContractPdfField field) {
         this.id = field.getFieldId();
@@ -33,5 +35,6 @@ public class ContractPdfFieldDTO {
         this.relativeHeight = field.getRelativeHeight();
         this.page = field.getPage();
         this.value = field.getValue();
+        this.confirmText = field.getConfirmText();
     }
 } 

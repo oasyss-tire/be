@@ -1,19 +1,22 @@
 package com.inspection.service;
 
-import com.inspection.dto.ContractPdfFieldDTO;
-import com.inspection.dto.SaveContractPdfFieldsRequest;
-import com.inspection.entity.ContractPdfField;
-import com.inspection.repository.ContractPdfFieldRepository;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.util.List;
-import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
-import com.inspection.entity.ParticipantPdfField;
-import com.inspection.repository.ParticipantPdfFieldRepository;
+
+import com.inspection.dto.ContractPdfFieldDTO;
 import com.inspection.dto.ParticipantPdfFieldDTO;
-import java.util.Optional;
+import com.inspection.dto.SaveContractPdfFieldsRequest;
+import com.inspection.entity.ContractPdfField;
+import com.inspection.entity.ParticipantPdfField;
+import com.inspection.repository.ContractPdfFieldRepository;
+import com.inspection.repository.ParticipantPdfFieldRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -40,6 +43,7 @@ public class ContractPdfService {
                 field.setRelativeHeight(dto.getRelativeHeight());
                 field.setPage(dto.getPage());
                 field.setValue(dto.getValue());
+                field.setConfirmText(dto.getConfirmText());
                 
                 log.debug("Created field entity: {}", field);
                 return field;

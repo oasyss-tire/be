@@ -33,8 +33,8 @@ import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.repository.ParticipantResignHistoryRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
-import com.inspection.util.EncryptionUtil;
 import com.inspection.repository.UserRepository;
+import com.inspection.util.EncryptionUtil;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -412,6 +412,7 @@ public class ContractService {
                 participantField.setRelativeWidth(templateField.getRelativeWidth());
                 participantField.setRelativeHeight(templateField.getRelativeHeight());
                 participantField.setPage(templateField.getPage());
+                participantField.setConfirmText(templateField.getConfirmText());
                 participantField.setTemplate(template);
                 return participantField;
             })
