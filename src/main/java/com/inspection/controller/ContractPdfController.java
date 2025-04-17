@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -29,8 +30,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -50,6 +49,7 @@ import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ParticipantPdfField;
 import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.entity.Contract;
 import com.inspection.exception.ValidationException;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
@@ -95,7 +95,22 @@ public class ContractPdfController {
     // 계약 ID와 비밀번호를 매핑하기 위한 캐시
     private final Map<String, String> contractPasswordCache = new ConcurrentHashMap<>();
 
-    // PDF 필드 저장 (2)
+    
+    // PDF 업로드 (원본)
+    // 최초 계약서 업로드 시 원본파일 저장용 API
+    @PostMapping("/upload")
+    public ResponseEntity<String> uploadPdf(@RequestParam("file") MultipartFile file) throws IOException {
+        String originalPdfId = generatePdfId(file.getOriginalFilename(), "original");
+        
+        // 원본 PDF 저장
+        pdfStorageService.saveOriginalPdf(originalPdfId, file.getBytes());
+        
+        return ResponseEntity.ok(originalPdfId);
+    }
+
+
+    // PDF 필드 저장
+    // 계약서 업로드 시 서명 필드 저장용 API
     @PostMapping("/fields")
     public ResponseEntity<Void> saveFields(@RequestBody SaveContractPdfFieldsRequest request) {
         log.info("Received fields request: pdfId={}, fieldCount={}", 
@@ -129,12 +144,83 @@ public class ContractPdfController {
     }
 
 
-    // PDF 업로드 (원본)
-    @PostMapping("/upload")
-    public ResponseEntity<String> uploadPdf(@RequestParam("file") MultipartFile file) throws IOException {
-        String originalPdfId = generatePdfId(file.getOriginalFilename(), "original");
-        pdfStorageService.savePdf(originalPdfId, file.getBytes());
-        return ResponseEntity.ok(originalPdfId);
+ 
+
+    // 템플릿 저장
+    // 최초 계약서를 사용하기위해 템플릿을 만들때 사용되는 API 
+    @PostMapping("/save-template/{pdfId}")
+    public ResponseEntity<ContractTemplate> saveTemplate(
+        @PathVariable String pdfId,
+        @RequestParam String templateName,
+        @RequestParam(required = false) String description
+    ) {
+        try {
+            ContractTemplate savedTemplate = contractTemplateService.createTemplate(
+                templateName, pdfId, description
+            );
+            return ResponseEntity.ok(savedTemplate);
+        } catch (Exception e) {
+            log.error("Error saving template", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // 템플릿 목록 조회
+    @GetMapping("/templates")
+    public ResponseEntity<List<ContractTemplateDTO>> getTemplates(
+        @RequestParam(required = false) String keyword
+    ) {
+        List<ContractTemplate> templates = keyword != null ?
+            contractTemplateRepository.findByTemplateNameContaining(keyword) :
+            contractTemplateService.getAllTemplates();
+        
+        // 최신순(생성일 기준) 정렬 적용
+        List<ContractTemplateDTO> dtos = templates.stream()
+            .map(ContractTemplateDTO::new)
+            .sorted((a, b) -> {
+                // CreatedAt이 null인 경우 처리
+                if (a.getCreatedAt() == null) return 1;
+                if (b.getCreatedAt() == null) return -1;
+                // 내림차순 정렬 (최신순)
+                return b.getCreatedAt().compareTo(a.getCreatedAt());
+            })
+            .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(dtos);
+    }
+
+    // 템플릿 상세 조회 (추가)
+    @GetMapping("/templates/{templateId}")
+    public ResponseEntity<ContractTemplateDTO> getTemplate(@PathVariable Long templateId) {
+        ContractTemplate template = contractTemplateService.getTemplate(templateId);
+        return ResponseEntity.ok(new ContractTemplateDTO(template));
+    }
+
+    // 템플릿 미리보기
+    @GetMapping("/templates/{templateId}/preview")
+    public ResponseEntity<byte[]> previewTemplate(@PathVariable Long templateId) {
+        try {
+            byte[] pdfBytes = contractTemplateService.previewTemplate(templateId);
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template_preview.pdf\"")
+                .body(pdfBytes);
+        } catch (Exception e) {
+            log.error("Error previewing template", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // 템플릿 비활성화
+    @DeleteMapping("/templates/{templateId}")
+    public ResponseEntity<Void> deactivateTemplate(@PathVariable Long templateId) {
+        try {
+            contractTemplateService.deactivateTemplate(templateId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            log.error("Error deactivating template", e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
 
@@ -169,6 +255,20 @@ public class ContractPdfController {
     @GetMapping("/view/{pdfId}")
     public ResponseEntity<byte[]> viewSavedPdf(@PathVariable String pdfId) throws IOException {
         try {
+            // 새로운 디렉토리 구조를 먼저 확인
+            boolean isTemplate = pdfId.contains("_template");
+            String contractDir = isTemplate ? "uploads/contracts/template" : "uploads/contracts/original";
+            Path contractPath = Paths.get(contractDir, pdfId);
+            
+            if (Files.exists(contractPath)) {
+                byte[] pdf = Files.readAllBytes(contractPath);
+                return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + pdfId + "\"")
+                    .body(pdf);
+            }
+            
+            // 기존 경로들도 확인 (하위 호환성 유지)
             // participants 폴더에서 PDF 파일 찾기
             Path pdfPath = Paths.get(uploadPath, "participants", pdfId);
             
@@ -270,6 +370,7 @@ public class ContractPdfController {
                 }
                 break;
             case "text":
+            case "confirmText":
                 if (!(value instanceof String)) {
                     throw new ValidationException("Text value must be string");
                 }
@@ -281,14 +382,31 @@ public class ContractPdfController {
 
     // PDF 업데이트 메소드
     private void updatePdfWithFieldValue(String pdfId, ParticipantPdfField field) throws IOException {
-        byte[] originalPdf = pdfStorageService.loadPdf(pdfId);
+        // 파일 유형 확인 (템플릿 vs 원본)
+        boolean isTemplate = pdfId.contains("_template");
+        
+        // 적절한 메서드로 PDF 로드
+        byte[] originalPdf;
+        if (isTemplate) {
+            originalPdf = pdfStorageService.loadTemplatePdf(pdfId);
+        } else {
+            originalPdf = pdfStorageService.loadOriginalPdf(pdfId);
+        }
+        
+        // 필드 값 추가
         byte[] processedPdf = pdfProcessingService.addValueToField(
             originalPdf,
             field,
             field.getValue(),
             field.getType()
         );
-        pdfStorageService.savePdf(pdfId, processedPdf);
+        
+        // 적절한 메서드로 PDF 저장
+        if (isTemplate) {
+            pdfStorageService.saveTemplatePdf(pdfId, processedPdf);
+        } else {
+            pdfStorageService.saveOriginalPdf(pdfId, processedPdf);
+        }
     }
 
 
@@ -296,8 +414,29 @@ public class ContractPdfController {
     @PostMapping("/download-signed/{pdfId}")
     public ResponseEntity<byte[]> saveSignedPdf(@PathVariable String pdfId) {
         try {
-            // 1. 서명된 PDF 생성
-            String signedPdfId = "signed_" + pdfId;
+            // 1. 파일명에서 정보 추출 및 서명된 PDF 파일명 생성
+            // 기존 pdfId가 "타임스탬프_SIGNING_계약번호_원본파일명_참여자이름.pdf" 형식이라고 가정
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            
+            // 6. ParticipantTemplateMapping 조회 (먼저 조회하여 참여자 정보 확보)
+            ParticipantTemplateMapping templateMapping = templateMappingRepository.findByPdfId(pdfId)
+                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
+            
+            ContractParticipant participant = templateMapping.getParticipant();
+            Contract contract = participant.getContract();
+            
+            // 원본 PDF ID에서 정보 추출
+            String originalFileName = extractOriginalFileName(pdfId);
+            
+            // 계약 번호 추출 - 파일명에서 추출 실패 시 계약 객체에서 직접 가져옴
+            String contractNumber = contract.getContractNumber();
+            
+            String participantName = participant.getName().replaceAll("[^\\p{L}\\p{N}]", "_"); // 특수문자 제거
+            
+            // 새로운 서명된 PDF ID 생성: 타임스탬프_SIGNED_계약번호_원본파일명_참여자이름.pdf
+            String signedPdfId = timestamp + "_SIGNED_" + contractNumber + "_" + originalFileName + "_" + participantName + ".pdf";
+            
+            log.info("서명된 PDF 파일명 생성: {}", signedPdfId);
             
             // 2. participants 폴더에서 원본 PDF 읽기
             Path originalPath = Paths.get(uploadPath, "participants", pdfId);
@@ -316,17 +455,13 @@ public class ContractPdfController {
             // 5. 현재 시간(서명 시간) 생성
             LocalDateTime signedTime = LocalDateTime.now();
             
-            // 6. ParticipantTemplateMapping 조회
-            ParticipantTemplateMapping templateMapping = templateMappingRepository.findByPdfId(pdfId)
-                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
-            
             // 7. 시리얼 넘버 생성
             Long participantId = templateMapping.getParticipant().getId();
             String contractInfo = pdfId + "_" + participantId + "_" + signedTime.toString();
             String serialNumber = generateSerialNumber(contractInfo);
             log.info("Generated serial number for PDF: {}", serialNumber);
             
-            // 8. PDF 하단에 서명 시간과 시리얼 넘버 추가
+            // 8. PDF 하단에 서명 시간 및 시리얼 넘버 추가
             String timeInfo = "서명 완료 시간: " + signedTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String serialInfo = "시리얼 넘버: " + serialNumber;
             processedPdf = pdfProcessingService.addSignatureTimeToPdf(
@@ -334,13 +469,7 @@ public class ContractPdfController {
                 timeInfo + "    " + serialInfo
             );
             
-            // 9. PDF에 로고 워터마크 추가
-            processedPdf = pdfProcessingService.addLogoWatermark(
-                processedPdf, 
-                "/images/tirebank_logo.png"
-            );
-            
-            // 10. PDF에 암호 보호 적용 - 계약별로 동일한 비밀번호 사용
+            // 10. PDF 암호화 (필요한 경우)
             Long contractId = templateMapping.getParticipant().getContract().getId();
             String contractCacheKey = "contract_" + contractId;
             String password;
@@ -368,9 +497,9 @@ public class ContractPdfController {
             Files.write(signedPath, processedPdf);
             
             // 12. ParticipantTemplateMapping 업데이트
-            templateMapping.setSignedPdfId(signedPdfId);
             templateMapping.setSigned(true);
             templateMapping.setSignedAt(signedTime);
+            templateMapping.setSignedPdfId(signedPdfId);
             templateMapping.setSerialNumber(serialNumber);
             templateMapping.setDocumentPassword(encryptionUtil.encrypt(password)); // 암호화하여 저장
             
@@ -378,7 +507,6 @@ public class ContractPdfController {
             log.info("Updated template mapping with signed PDF ID and password: {}", signedPdfId);
             
             // 13. 이메일로 암호 전송 (참여자 정보가 있는 경우)
-            ContractParticipant participant = templateMapping.getParticipant();
             if (participant != null && participant.getEmail() != null && !participant.getEmail().isEmpty()) {
                 try {
                     // 이메일 복호화
@@ -431,39 +559,89 @@ public class ContractPdfController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
+    
+    /**
+     * PDF ID에서 원본 파일명을 추출합니다.
+     */
+    private String extractOriginalFileName(String pdfId) {
+        // 새 형식 (타임스탬프_SIGNING_계약번호_원본파일명_참여자이름.pdf)에서 추출
+        // 앞에서부터 세 번째 언더스코어 이후부터 네 번째 언더스코어 이전까지가 원본 파일명
+        
+        String[] parts = pdfId.split("_");
+        if (parts.length >= 5) { // 최소 5개 이상의 부분으로 나뉘어야 함
+            // 원본 파일명 부분 (인덱스 3부터 마지막-1까지)
+            StringBuilder fileName = new StringBuilder();
+            for (int i = 3; i < parts.length - 1; i++) {
+                fileName.append(parts[i]);
+                if (i < parts.length - 2) {
+                    fileName.append("_"); // 중간에 있던 언더스코어 복원
+                }
+            }
+            return fileName.toString();
+        }
+        
+        // 기존 형식 또는 파싱할 수 없는 경우
+        return "document";
+    }
+    
+    /**
+     * PDF ID에서 계약 번호를 추출합니다.
+     */
+    private String extractContractNumber(String pdfId) {
+        // 새 형식 (타임스탬프_SIGNING_계약번호_원본파일명_참여자이름.pdf)에서 추출
+        // 두 번째 언더스코어 이후부터 세 번째 언더스코어 이전까지가 계약 번호
+        
+        String[] parts = pdfId.split("_");
+        if (parts.length >= 4 && "SIGNING".equals(parts[1])) {
+            return parts[2]; // 계약 번호 부분
+        }
+        
+        // 기존 형식 또는 파싱할 수 없는 경우
+        return "UNKNOWN";
+    }
 
     // 서명 완료 된 PDF 저장
     @GetMapping("/download-signed-pdf/{pdfId}")
     public ResponseEntity<byte[]> downloadSignedPdf(@PathVariable String pdfId) {
         try {
+            log.info("서명된 PDF 다운로드 요청: {}", pdfId);
+            
             // 서명된 PDF ID 찾기
             String signedPdfId = pdfId;
+            Path signedPath = null;
             
-            // pdfId가 원본 PDF ID인 경우, 해당 매핑에서 서명된 PDF ID 조회
-            if (!pdfId.startsWith("signed_") && !pdfId.startsWith("resigned_")) {
-                ParticipantTemplateMapping mapping = templateMappingRepository.findByPdfId(pdfId)
-                    .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
-                
-                if (mapping.getSignedPdfId() == null) {
-                    throw new RuntimeException("아직 서명되지 않은 PDF입니다: " + pdfId);
+            // pdfId가 원본 PDF ID인 경우, 해당 매핑에서 서명된 PDF ID 조회 시도
+            try {
+                if (!pdfId.contains("_SIGNED_") && !pdfId.contains("_RESIGNED_")) {
+                    ParticipantTemplateMapping mapping = templateMappingRepository.findByPdfId(pdfId)
+                        .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + pdfId));
+                        
+                    if (mapping.getSignedPdfId() == null) {
+                        throw new RuntimeException("아직 서명되지 않은 PDF입니다: " + pdfId);
+                    }
+                        
+                    signedPdfId = mapping.getSignedPdfId();
                 }
-                
-                signedPdfId = mapping.getSignedPdfId();
+            } catch (Exception e) {
+                log.warn("매핑 정보에서 서명된 PDF ID를 찾지 못했습니다. 직접 경로 확인 시도: {}", e.getMessage());
+                // 매핑 정보를 찾지 못하더라도 계속 진행 (다음 단계에서 직접 파일 찾기 시도)
             }
             
-            // 경로 결정 (일반 서명 또는 재서명)
-            Path signedPath;
-            if (pdfId.startsWith("resigned_")) {
-                signedPath = Paths.get(uploadPath, "resigned", pdfId);
-            } else {
-                signedPath = Paths.get(uploadPath, "signed", signedPdfId);
-            }
+            // 먼저 "signed" 디렉토리에서 파일 찾기 시도
+            signedPath = Paths.get(uploadPath, "signed", signedPdfId);
             
+            // "signed" 디렉토리에 없으면 "resigned" 디렉토리에서 찾기 시도
             if (!Files.exists(signedPath)) {
-                log.warn("PDF not found at path: {}", signedPath);
+                signedPath = Paths.get(uploadPath, "resigned", signedPdfId);
+            }
+            
+            // 그래도 없으면 에러
+            if (!Files.exists(signedPath)) {
+                log.warn("서명된 PDF를 찾을 수 없습니다. 경로: {}", signedPath);
                 throw new RuntimeException("서명된 PDF를 찾을 수 없습니다: " + signedPdfId);
             }
             
+            log.info("서명된 PDF 찾음: {}", signedPath);
             byte[] pdfBytes = Files.readAllBytes(signedPath);
             
             // 한글 파일명 인코딩
@@ -537,98 +715,39 @@ public class ContractPdfController {
         }
     }
 
-    // 파일명 생성 메서드 수정
+    // 파일명 생성 메서드
+    // 원본, 템플릿, 서명후 파일명 생성
     private String generatePdfId(String originalFilename, String type) {
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String cleanName = originalFilename.replaceAll("[^a-zA-Z0-9.]", "_");
+        // 현재 시간을 읽기 쉬운 형식으로 포맷팅 (yyyyMMddHHmmss)
+        String timestamp = java.time.LocalDateTime.now()
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         
+        // 확장자 추출
+        String extension = "";
+        int dotIndex = originalFilename.lastIndexOf(".");
+        if (dotIndex > 0) {
+            extension = originalFilename.substring(dotIndex);
+            originalFilename = originalFilename.substring(0, dotIndex);
+        }
+        
+        // 파일명에서 특수문자 제거 (한글은 유지)
+        // 자바스크립트 정규식과 달리 자바 정규식은 한글을 포함한 유니코드 문자를 보존
+        String cleanName = originalFilename.replaceAll("[^\\p{L}\\p{N}]", "_");
+        
+        // 파일명 조합
         switch (type) {
             case "original":
-                return timestamp + "_original_" + cleanName;
+                return timestamp + "_original_" + cleanName + extension;
             case "template":
-                return timestamp + "_template_" + cleanName;
+                return timestamp + "_template_" + cleanName + extension;
             case "signed":
-                return timestamp + "_signed_" + cleanName;
+                return timestamp + "_signed_" + cleanName + extension;
             default:
-                return timestamp + "_" + cleanName;
+                return timestamp + "_" + cleanName + extension;
         }
     }
 
-    // 템플릿 저장
-    @PostMapping("/save-template/{pdfId}")
-    public ResponseEntity<ContractTemplate> saveTemplate(
-        @PathVariable String pdfId,
-        @RequestParam String templateName,
-        @RequestParam(required = false) String description
-    ) {
-        try {
-            ContractTemplate savedTemplate = contractTemplateService.createTemplate(
-                templateName, pdfId, description
-            );
-            return ResponseEntity.ok(savedTemplate);
-        } catch (Exception e) {
-            log.error("Error saving template", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // 템플릿 목록 조회
-    @GetMapping("/templates")
-    public ResponseEntity<List<ContractTemplateDTO>> getTemplates(
-        @RequestParam(required = false) String keyword
-    ) {
-        List<ContractTemplate> templates = keyword != null ?
-            contractTemplateRepository.findByTemplateNameContaining(keyword) :
-            contractTemplateService.getAllTemplates();
-        
-        // 최신순(생성일 기준) 정렬 적용
-        List<ContractTemplateDTO> dtos = templates.stream()
-            .map(ContractTemplateDTO::new)
-            .sorted((a, b) -> {
-                // CreatedAt이 null인 경우 처리
-                if (a.getCreatedAt() == null) return 1;
-                if (b.getCreatedAt() == null) return -1;
-                // 내림차순 정렬 (최신순)
-                return b.getCreatedAt().compareTo(a.getCreatedAt());
-            })
-            .collect(Collectors.toList());
-        
-        return ResponseEntity.ok(dtos);
-    }
-
-    // 템플릿 상세 조회 (추가)
-    @GetMapping("/templates/{templateId}")
-    public ResponseEntity<ContractTemplateDTO> getTemplate(@PathVariable Long templateId) {
-        ContractTemplate template = contractTemplateService.getTemplate(templateId);
-        return ResponseEntity.ok(new ContractTemplateDTO(template));
-    }
-
-    // 템플릿 미리보기
-    @GetMapping("/templates/{templateId}/preview")
-    public ResponseEntity<byte[]> previewTemplate(@PathVariable Long templateId) {
-        try {
-            byte[] pdfBytes = contractTemplateService.previewTemplate(templateId);
-            return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"template_preview.pdf\"")
-                .body(pdfBytes);
-        } catch (Exception e) {
-            log.error("Error previewing template", e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    // 템플릿 비활성화
-    @DeleteMapping("/templates/{templateId}")
-    public ResponseEntity<Void> deactivateTemplate(@PathVariable Long templateId) {
-        try {
-            contractTemplateService.deactivateTemplate(templateId);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error deactivating template", e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
+    
 
     // 서명된 PDF 미리보기
     @GetMapping("/preview-signed-pdf/{pdfId}")
@@ -815,6 +934,19 @@ public class ContractPdfController {
                 throw new RuntimeException("PDF 파일 경로가 없습니다");
             }
             
+            // 새로운 서명된 PDF 파일명 생성
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            
+            // 계약번호는 파일명에서 추출하지 않고, 계약 객체에서 직접 가져옴
+            String contractNumber = participant.getContract().getContractNumber();
+            
+            String originalFileName = extractOriginalFileName(pdfFilePath);
+            String participantName = participant.getName().replaceAll("[^\\p{L}\\p{N}]", "_"); // 특수문자 제거
+            
+            // 새로운 형식으로 서명된 PDF 파일명 생성
+            String signedPdfFileName = timestamp + "_SIGNED_" + contractNumber + "_" + originalFileName + "_" + participantName + ".pdf";
+            log.info("새로운 서명된 PDF 파일명 생성: {}", signedPdfFileName);
+            
             String fullPdfPath = uploadPath + "/" + pdfFilePath;
             File pdfFile = new File(fullPdfPath);
             
@@ -829,8 +961,7 @@ public class ContractPdfController {
             }
             
             // 서명된 PDF 저장 경로
-            String signedPdfFileName = "signed_" + pdfFilePath;
-            String signedPdfPath = uploadPath + "/" + signedPdfFileName;
+            String signedPdfPath = uploadPath + "/signed/" + signedPdfFileName;
             
             // 계약별 비밀번호 생성 또는 재사용
             String password;
@@ -844,6 +975,12 @@ public class ContractPdfController {
                 password = generateSecurePassword();
                 contractPasswordCache.put(contractCacheKey, password);
                 log.info("새 계약 비밀번호 생성 - 계약ID: {}", contractId);
+            }
+            
+            // signed 디렉토리 확인 및 생성
+            Path signedDir = Paths.get(uploadPath, "signed");
+            if (!Files.exists(signedDir)) {
+                Files.createDirectories(signedDir);
             }
             
             // 서명 이미지를 PDF에 추가하고 시리얼 넘버 워터마크 삽입
@@ -896,8 +1033,10 @@ public class ContractPdfController {
             mapping.setSigned(true);
             mapping.setSignedAt(LocalDateTime.now());
             mapping.setSignedPdfId(signedPdfFileName);
-            mapping.setDocumentPassword(encryptionUtil.encrypt(password));
+            mapping.setDocumentPassword(encryptionUtil.encrypt(password)); // 암호화하여 저장
+            
             templateMappingRepository.save(mapping);
+            log.info("Updated template mapping with signed PDF ID and password: {}", signedPdfFileName);
             
             // 참여자의 이메일이 있으면 비밀번호 이메일 발송
             // 이미 보낸 비밀번호는 다시 보내지 않도록 처리
@@ -952,9 +1091,28 @@ public class ContractPdfController {
             String decodedPdfId = java.net.URLDecoder.decode(signedPdfId, StandardCharsets.UTF_8.name());
             log.info("디코딩된 PDF ID: {}", decodedPdfId);
             
-            // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회)
-            ParticipantTemplateMapping templateMapping = templateMappingRepository.findBySignedPdfId(decodedPdfId)
-                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + decodedPdfId));
+            // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회 또는 재서명된 PDF ID로 조회)
+            ParticipantTemplateMapping templateMapping = null;
+            
+            // 먼저 서명된 PDF ID로 조회
+            try {
+                templateMapping = templateMappingRepository.findBySignedPdfId(decodedPdfId)
+                    .orElse(null);
+                
+                if (templateMapping == null) {
+                    log.info("서명된 PDF ID로 매핑을 찾지 못했습니다. 재서명된 PDF ID로 조회합니다: {}", decodedPdfId);
+                    
+                    // 서명된 PDF ID로 찾지 못했으면 재서명된 PDF ID로 조회
+                    templateMapping = templateMappingRepository.findByResignedPdfId(decodedPdfId)
+                        .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + decodedPdfId));
+                    
+                    log.info("재서명된 PDF ID로 매핑을 찾았습니다: {}", decodedPdfId);
+                }
+            } catch (Exception e) {
+                log.error("템플릿 매핑 정보 조회 중 오류 발생: {}", e.getMessage());
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Collections.singletonMap("message", "매핑 정보를 찾을 수 없습니다: " + e.getMessage()));
+            }
             
             // 2. 참여자 정보 조회
             ContractParticipant participant = templateMapping.getParticipant();
@@ -997,9 +1155,28 @@ public class ContractPdfController {
             String decodedPdfId = java.net.URLDecoder.decode(signedPdfId, StandardCharsets.UTF_8.name());
             log.info("디코딩된 PDF ID: {}", decodedPdfId);
             
-            // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회)
-            ParticipantTemplateMapping templateMapping = templateMappingRepository.findBySignedPdfId(decodedPdfId)
-                .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + decodedPdfId));
+            // 1. 템플릿 매핑 정보 조회 (서명된 PDF ID로 조회 또는 재서명된 PDF ID로 조회)
+            ParticipantTemplateMapping templateMapping = null;
+            
+            // 먼저 서명된 PDF ID로 조회
+            try {
+                templateMapping = templateMappingRepository.findBySignedPdfId(decodedPdfId)
+                    .orElse(null);
+                
+                if (templateMapping == null) {
+                    log.info("서명된 PDF ID로 매핑을 찾지 못했습니다. 재서명된 PDF ID로 조회합니다: {}", decodedPdfId);
+                    
+                    // 서명된 PDF ID로 찾지 못했으면 재서명된 PDF ID로 조회
+                    templateMapping = templateMappingRepository.findByResignedPdfId(decodedPdfId)
+                        .orElseThrow(() -> new RuntimeException("템플릿 매핑 정보를 찾을 수 없습니다: " + decodedPdfId));
+                    
+                    log.info("재서명된 PDF ID로 매핑을 찾았습니다: {}", decodedPdfId);
+                }
+            } catch (Exception e) {
+                log.error("템플릿 매핑 정보 조회 중 오류 발생: {}", e.getMessage());
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Collections.singletonMap("message", "매핑 정보를 찾을 수 없습니다: " + e.getMessage()));
+            }
             
             // 2. 참여자 정보 조회
             ContractParticipant participant = templateMapping.getParticipant();

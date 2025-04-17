@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 public class PdfService {
     
     private final FileService fileService;
+    private final PdfStorageService pdfStorageService;
 
     
 
@@ -248,28 +249,24 @@ public class PdfService {
      */
     public void copyTemplateForParticipant(String sourcePdfId, String targetPdfId) {
         try {
-            // 소스 PDF 경로 (pdfs 폴더에서 읽기)
-            Path sourcePath = Paths.get(".", "uploads", "pdfs", sourcePdfId);
+            // PdfStorageService를 통해 템플릿 PDF 로드 (경로 확인 로직이 내장됨)
+            byte[] pdfContent = pdfStorageService.loadTemplatePdf(sourcePdfId);
             
             // 대상 PDF 경로 (participants 폴더에 저장)
             Path targetDir = Paths.get(uploadPath, "participants");
             Path targetPath = targetDir.resolve(targetPdfId);
             
-            // 디렉토리 존재 확인
-            if (!Files.exists(sourcePath)) {
-                throw new RuntimeException("템플릿 PDF 파일을 찾을 수 없습니다: " + sourcePath);
-            }
-            
+            // 대상 디렉토리 존재 확인
             if (!Files.exists(targetDir)) {
                 Files.createDirectories(targetDir);
             }
             
-            // 파일 복사
-            Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-            log.info("PDF copied successfully from {} to {}", sourcePdfId, targetPdfId);
+            // 파일 저장
+            Files.write(targetPath, pdfContent);
+            log.info("PDF copied successfully from template {} to participant {}", sourcePdfId, targetPdfId);
             
         } catch (IOException e) {
-            log.error("Error copying PDF file from {} to {}", sourcePdfId, targetPdfId, e);
+            log.error("Error copying PDF file from template {} to participant {}", sourcePdfId, targetPdfId, e);
             throw new RuntimeException("PDF 파일 복사 중 오류가 발생했습니다.", e);
         }
     }

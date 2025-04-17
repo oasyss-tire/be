@@ -78,6 +78,9 @@ public class ContractService {
     private static final String PARTICIPANT_STATUS_APPROVED = "008001_0002";  // 승인 완료
     private static final String PARTICIPANT_STATUS_REJECTED = "008001_0005";  // 승인 거부
     
+
+    // 계약 생성 시 템플릿 매핑 처리
+    // 및 참여자 별 PDF 생성
     public Contract createContract(CreateContractRequest request) {
         log.info("Creating new contract: {}", request.getTitle());
         
@@ -179,7 +182,7 @@ public class ContractService {
                     // 참여자별 PDF ID 생성
                     String participantPdfId = generateParticipantPdfId(
                         templateMapping.getProcessedPdfId(), 
-                        participant.getName()
+                        participant.getName(), contract
                     );
                     
                     // 템플릿 PDF 복사
@@ -323,10 +326,57 @@ public class ContractService {
         return participant;
     }
     
-    private String generateParticipantPdfId(String templatePdfId, String participantName) {
-        String baseName = templatePdfId.substring(0, templatePdfId.lastIndexOf("."));
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        return String.format("%s_%s_%s.pdf", baseName, participantName, timestamp);
+    private String generateParticipantPdfId(String templatePdfId, String participantName, Contract contract) {
+        // 타임스탬프 생성 (yyyyMMdd_HHmmss 형식)
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        
+        // 계약 단계 (계약 생성 시에는 항상 SIGNING)
+        String contractStage = "SIGNING";
+        
+        // 계약번호 가져오기
+        String contractNumber = contract.getContractNumber();
+        
+        // 원본 파일명 추출 (템플릿 ID에서 추출)
+        String originalFileName = extractOriginalFileName(templatePdfId);
+        
+        // 참여자 이름에서 특수문자만 제거 (한글과 영문자 유지)
+        String cleanName = participantName.replaceAll("[^\\p{L}\\p{N}]", "_");
+        
+        // 확장자 추출
+        String extension = ".pdf";
+        int dotIndex = templatePdfId.lastIndexOf(".");
+        if (dotIndex > 0) {
+            extension = templatePdfId.substring(dotIndex);
+        }
+        
+        // 파일명 조합: 타임스탬프_계약단계_계약번호_파일명_참여자이름.확장자
+        return timestamp + "_" + contractStage + "_" + contractNumber + "_" + originalFileName + "_" + cleanName + extension;
+    }
+    
+    /**
+     * 템플릿 ID에서 원본 파일명 추출
+     */
+    private String extractOriginalFileName(String templatePdfId) {
+        // 새 형식: "타임스탬프_template_파일명.pdf"
+        if (templatePdfId.contains("_template_")) {
+            int startIndex = templatePdfId.indexOf("_template_") + "_template_".length();
+            int endIndex = templatePdfId.lastIndexOf(".");
+            if (startIndex > 0 && endIndex > startIndex) {
+                return templatePdfId.substring(startIndex, endIndex);
+            }
+        }
+        
+        // 이전 형식: "타임스탬프_original_파일명_template.pdf"
+        if (templatePdfId.contains("_original_") && templatePdfId.contains("_template.pdf")) {
+            int startIndex = templatePdfId.indexOf("_original_") + "_original_".length();
+            int endIndex = templatePdfId.indexOf("_template.pdf");
+            if (startIndex > 0 && endIndex > startIndex) {
+                return templatePdfId.substring(startIndex, endIndex);
+            }
+        }
+        
+        // 기존 템플릿에서 추출할 수 없는 경우 기본값 반환
+        return "contract";
     }
     
     @Transactional(readOnly = true)
@@ -861,11 +911,6 @@ public class ContractService {
         if (participant.getStatusCode() != null && 
             "008001_0006".equals(participant.getStatusCode().getCodeId())) {
             throw new IllegalStateException("이미 재서명 요청 상태입니다.");
-        }
-        
-        // 서명이 완료된 상태에서만 재서명 요청 가능
-        if (!participant.isSigned()) {
-            throw new IllegalStateException("서명이 완료되지 않은 상태에서는 재서명을 요청할 수 없습니다.");
         }
         
         log.info("참여자 재서명 요청 처리 시작: 계약ID={}, 참여자ID={}", contractId, participantId);

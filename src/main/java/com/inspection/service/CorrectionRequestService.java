@@ -1,19 +1,16 @@
 package com.inspection.service;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.HashMap;
-import java.util.Objects;
-import java.io.ByteArrayOutputStream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -32,7 +29,6 @@ import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.util.EncryptionUtil;
-
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -337,14 +333,49 @@ public class CorrectionRequestService {
                     // 원본 PDF ID
                     String pdfId = mapping.getPdfId();
                     
-                    // 재서명 PDF ID 생성
-                    String resignedPdfId = "resigned_" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + "_" + pdfId;
-                    
                     // 원본 PDF 파일 경로
                     Path originalPath = Paths.get(uploadPath, "participants", pdfId);
                     if (!Files.exists(originalPath)) {
                         throw new RuntimeException("원본 PDF를 찾을 수 없습니다: " + pdfId);
                     }
+                    
+                    // 현재 시간의 타임스탬프 생성
+                    String timestamp = now.format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+                    
+                    // 로그를 통해 원본 파일명 확인
+                    log.info("원본 PDF 파일명 구조 분석: {}", pdfId);
+                    
+                    // 타임스탬프 패턴 정규식 (yyyyMMdd_HHmmss 형식)
+                    String timestampPattern = "\\d{8}_\\d{6}";
+                    
+                    // 재서명 PDF ID 생성
+                    String resignedPdfId;
+                    
+                    if (pdfId.matches(timestampPattern + ".*")) {
+                        // 타임스탬프 부분 교체 - 파일명의 첫 번째 부분만 교체
+                        int firstUnderscore = pdfId.indexOf("_", 9); // yyyyMMdd_ 이후의 첫 번째 언더스코어
+                        if (firstUnderscore > 0) {
+                            String afterTimestamp = pdfId.substring(firstUnderscore);
+                            
+                            // SIGNING을 RESIGNED로 교체
+                            String afterSigningReplaced = afterTimestamp.replace("_SIGNING_", "_RESIGNED_");
+                            
+                            // 최종 파일명
+                            resignedPdfId = timestamp + afterSigningReplaced;
+                            
+                            log.info("파일명 타임스탬프 교체 및 SIGNING->RESIGNED 교체 완료: {}", resignedPdfId);
+                        } else {
+                            // 예상치 못한 형식
+                            resignedPdfId = timestamp + "_RESIGNED_" + pdfId.substring(15); // 타임스탬프 부분 제거
+                            log.info("타임스탬프만 교체: {}", resignedPdfId);
+                        }
+                    } else {
+                        // 타임스탬프 패턴이 없는 경우 간단하게 접두사 추가
+                        resignedPdfId = timestamp + "_RESIGNED_" + pdfId;
+                        log.info("타임스탬프와 접두사 추가: {}", resignedPdfId);
+                    }
+                    
+                    log.info("재서명 PDF 파일명 생성 결과: 원본={}, 재서명={}", pdfId, resignedPdfId);
                     
                     // 원본 PDF 바이트 읽기
                     byte[] originalPdf = Files.readAllBytes(originalPath);
@@ -370,12 +401,6 @@ public class CorrectionRequestService {
                         processedPdf = pdfProcessingService.addSignatureTimeToPdf(
                             processedPdf, 
                             timeInfo + "    " + serialInfo
-                        );
-                        
-                        // PDF에 로고 워터마크 추가
-                        processedPdf = pdfProcessingService.addLogoWatermark(
-                            processedPdf, 
-                            "/images/tirebank_logo.png"
                         );
                         
                         // 원본 서명 PDF와 동일한 비밀번호 적용
@@ -508,5 +533,29 @@ public class CorrectionRequestService {
             // 오류 발생 시 대체 시리얼 넘버 반환
             return "ERR-" + System.currentTimeMillis() + "-" + contractInfo.hashCode();
         }
+    }
+
+    /**
+     * PDF ID에서 원본 파일명을 추출합니다.
+     */
+    private String extractOriginalFileName(String pdfId) {
+        // 새 형식 (타임스탬프_SIGNING_계약번호_원본파일명_참여자이름.pdf)에서 추출
+        // 앞에서부터 세 번째 언더스코어 이후부터 네 번째 언더스코어 이전까지가 원본 파일명
+        
+        String[] parts = pdfId.split("_");
+        if (parts.length >= 5) { // 최소 5개 이상의 부분으로 나뉘어야 함
+            // 원본 파일명 부분 (인덱스 3부터 마지막-1까지)
+            StringBuilder fileName = new StringBuilder();
+            for (int i = 3; i < parts.length - 1; i++) {
+                fileName.append(parts[i]);
+                if (i < parts.length - 2) {
+                    fileName.append("_"); // 중간에 있던 언더스코어 복원
+                }
+            }
+            return fileName.toString();
+        }
+        
+        // 기존 형식 또는 파싱할 수 없는 경우 기본값 반환
+        return "document";
     }
 } 

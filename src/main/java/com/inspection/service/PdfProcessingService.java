@@ -95,7 +95,7 @@ public class PdfProcessingService {
                 document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                 
                 switch (type) {
-                    case "text" -> addTextContent(contentStream, document, x, y, height, value);
+                    case "text", "confirmText" -> addTextContent(contentStream, document, x, y, height, value);
                     case "signature" -> {
                         // Base64 이미지 데이터를 바이트 배열로 변환
                         byte[] imageData = Base64.getDecoder().decode(value.split(",")[1]);
@@ -214,7 +214,7 @@ public class PdfProcessingService {
                     document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                     
                     switch (field.getType()) {
-                        case "text" -> addTextContent(contentStream, document, x, y, height, field.getValue());
+                        case "text", "confirmText" -> addTextContent(contentStream, document, x, y, height, field.getValue());
                         case "signature" -> {
                             if (field.getValue().startsWith("data:image")) {
                                 byte[] imageData = Base64.getDecoder().decode(field.getValue().split(",")[1]);
