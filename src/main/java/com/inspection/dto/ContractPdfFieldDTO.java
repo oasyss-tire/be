@@ -1,11 +1,14 @@
 package com.inspection.dto;
 
 import com.inspection.entity.ContractPdfField;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,6 +25,8 @@ public class ContractPdfFieldDTO {
     private Integer page;
     private String value;
     private String confirmText;
+    private String description;
+    private String formatCodeId; // 입력 형식 코드 ID (전화번호, 주민번호 등)
 
     public ContractPdfFieldDTO(ContractPdfField field) {
         this.id = field.getFieldId();
@@ -36,5 +41,28 @@ public class ContractPdfFieldDTO {
         this.page = field.getPage();
         this.value = field.getValue();
         this.confirmText = field.getConfirmText();
+        this.description = field.getDescription();
+        this.formatCodeId = field.getFormat() != null ? field.getFormat().getCodeId() : null;
+    }
+    
+    // 암호화된 민감 정보를 복호화하는 생성자 추가
+    public ContractPdfFieldDTO(ContractPdfField field, EncryptionUtil encryptionUtil) {
+        this(field); // 기존 생성자 호출
+        
+        // 민감 정보 필드인 경우 복호화
+        if (field.getFormat() != null) {
+            String formatCode = field.getFormat().getCodeId();
+            if ("001004_0001".equals(formatCode) || "001004_0002".equals(formatCode)) {
+                try {
+                    if (field.getValue() != null && !field.getValue().isEmpty()) {
+                        this.value = encryptionUtil.decrypt(field.getValue());
+                        log.info("DTO 변환 시 민감정보 복호화 처리: {} ({})", field.getFieldName(), formatCode);
+                    }
+                } catch (Exception e) {
+                    log.error("민감정보 복호화 중 오류 발생: {} - {}", field.getFieldName(), e.getMessage());
+                    // 복호화 실패 시 암호화된 값 그대로 사용
+                }
+            }
+        }
     }
 } 

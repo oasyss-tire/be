@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ParticipantPdfField;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,8 @@ public class PdfProcessingService {
     // A4 크기 상수 정의
     private static final float PDF_WIDTH = 595.28f;
     private static final float PDF_HEIGHT = 841.89f;
+    
+    private final EncryptionUtil encryptionUtil;
     
     public byte[] addFieldsToPdf(byte[] originalPdf, List<ContractPdfField> fields) throws IOException {
         try (PDDocument document = PDDocument.load(originalPdf)) {
@@ -190,39 +193,65 @@ public class PdfProcessingService {
 
             // 디버깅용 로그 - 필드 정보 출력
             log.info("PDF에 {} 개의 필드 값을 추가합니다.", fields.size());
-            for (ParticipantPdfField field : fields) {
-                log.info("필드 정보 - ID: {}, PDF ID: {}, 필드명: {}, 타입: {}, 값: {}, 페이지: {}",
-                        field.getId(), field.getPdfId(), field.getFieldName(), field.getType(),
-                        field.getValue() != null && field.getValue().length() > 20 ? 
-                                field.getValue().substring(0, 20) + "..." : field.getValue(),
-                        field.getPage());
-            }
-
+            
             // 값만 추가
             for (ParticipantPdfField field : fields) {
                 if (field.getValue() == null || field.getValue().isEmpty()) {
                     continue;
                 }
+                
+                // 페이지 인덱스 유효성 검사
+                int pageIndex = field.getPage() - 1;
+                if (pageIndex < 0 || pageIndex >= document.getNumberOfPages()) {
+                    log.error("유효하지 않은 페이지 번호: {} (필드: {})", field.getPage(), field.getFieldName());
+                    continue;
+                }
 
-                PDPage page = document.getPage(field.getPage() - 1);
+                PDPage page = document.getPage(pageIndex);
                 float x = PDF_WIDTH * field.getRelativeX().floatValue();
                 float y = PDF_HEIGHT * field.getRelativeY().floatValue();
                 float width = PDF_WIDTH * field.getRelativeWidth().floatValue();
                 float height = PDF_HEIGHT * field.getRelativeHeight().floatValue();
                 
+                // 필드 값 처리 (민감 정보인 경우 복호화)
+                String fieldValue = field.getValue();
+                String fieldName = field.getFieldName();
+                
+                try {
+                    // 민감 정보 필드인 경우
+                    boolean isSensitiveField = false;
+                    if (field.getFormat() != null) {
+                        String formatCode = field.getFormat().getCodeId();
+                        isSensitiveField = "001004_0001".equals(formatCode) || "001004_0002".equals(formatCode);
+                        
+                        if (isSensitiveField) {
+                            // 값이 암호화되어 있는지 확인하고 복호화
+                            try {
+                                fieldValue = encryptionUtil.decrypt(fieldValue);
+                                log.info("민감정보 복호화 처리: {} ({})", fieldName, formatCode);
+                            } catch (Exception e) {
+                                log.error("민감정보 복호화 중 오류 발생: {} - {}", fieldName, e.getMessage());
+                                // 복호화 실패해도 진행 (원본 값 사용)
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("필드 값 처리 중 오류: {}", e.getMessage());
+                }
+                
                 try (PDPageContentStream contentStream = new PDPageContentStream(
                     document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                     
                     switch (field.getType()) {
-                        case "text", "confirmText" -> addTextContent(contentStream, document, x, y, height, field.getValue());
+                        case "text", "confirmText" -> addTextContent(contentStream, document, x, y, height, fieldValue);
                         case "signature" -> {
-                            if (field.getValue().startsWith("data:image")) {
-                                byte[] imageData = Base64.getDecoder().decode(field.getValue().split(",")[1]);
+                            if (fieldValue.startsWith("data:image")) {
+                                byte[] imageData = Base64.getDecoder().decode(fieldValue.split(",")[1]);
                                 addSignatureContent(contentStream, document, x, y, width, height, imageData);
                             }
                         }
                         case "checkbox" -> {
-                            if (Boolean.parseBoolean(field.getValue())) {
+                            if (Boolean.parseBoolean(fieldValue)) {
                                 addCheckmarkContent(contentStream, x, y, width, height);
                             }
                         }

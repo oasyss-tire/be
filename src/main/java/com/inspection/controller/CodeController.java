@@ -200,6 +200,15 @@ public class CodeController {
         return ResponseEntity.ok(CodeHistoryDTO.fromEntities(history));
     }
     
+    //필드 형식 코드 목록 조회 (001004 그룹의 코드들)
+    @GetMapping("/field-formats")
+    public ResponseEntity<List<CodeDTO>> getFieldFormatCodes() {
+        // 필드 형식 그룹 ID (001004)
+        String fieldFormatGroupId = "001004";
+        List<Code> formatCodes = codeService.getActiveCodesByGroupId(fieldFormatGroupId);
+        return ResponseEntity.ok(CodeDTO.fromEntities(formatCodes));
+    }
+    
     //=== 헬퍼 메서드 ===//
     
     //현재 로그인한 사용자 ID 조회

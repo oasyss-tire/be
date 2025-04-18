@@ -9,6 +9,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -39,6 +40,11 @@ public class ContractPdfField {
     @Column(nullable = false)
     private String type;           // 필드 타입 (signature, text 등)
 
+    // 입력 형식 코드와 연결
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "format_code_id")
+    private Code format;          // 필드 입력 형식 (전화번호, 주민번호 등)
+
     @Column(name = "relativex", nullable = false)
     private Double relativeX;
 
@@ -56,6 +62,9 @@ public class ContractPdfField {
     
     @Column(columnDefinition = "LONGTEXT")
     private String confirmText;    // 따라 작성해야 하는 원본 텍스트
+    
+    @Column(length = 500)
+    private String description;    // 필드에 대한 설명 (용도, 작성 지침 등)
     
     @Column(columnDefinition = "LONGTEXT")
     private String value;

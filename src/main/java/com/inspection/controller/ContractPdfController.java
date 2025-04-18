@@ -330,7 +330,25 @@ public class ContractPdfController {
             validateFieldValue(fieldType, fieldValue);
             
             // 3. 필드 값 업데이트
-            field.setValue(fieldValue.toString());
+            // 민감 정보 필드 (001004_0001: 모바일 번호, 001004_0002: 주민등록번호) 암호화
+            String valueToSave = fieldValue.toString();
+            
+            // format_code_id를 통해 민감 정보 확인
+            boolean isSensitiveField = false;
+            if (field.getFormat() != null) {
+                String formatCode = field.getFormat().getCodeId();
+                isSensitiveField = "001004_0001".equals(formatCode) || "001004_0002".equals(formatCode);
+                
+                if (isSensitiveField) {
+                    log.info("민감 정보 필드 식별: {} ({})", fieldName, formatCode);
+                    // 민감 정보 암호화
+                    valueToSave = encryptionUtil.encrypt(valueToSave);
+                    log.info("민감정보 암호화 처리 완료: {}", fieldName);
+                }
+            }
+            
+            field.setValue(valueToSave);
+            log.info("필드 값 저장: {} = {}", fieldName, valueToSave.substring(0, Math.min(10, valueToSave.length())) + (valueToSave.length() > 10 ? "..." : ""));
             
             // 4. 저장
             ParticipantPdfField updatedField = participantPdfFieldRepository.save(field);
@@ -340,8 +358,17 @@ public class ContractPdfController {
                 updatePdfWithFieldValue(pdfId, field);
             }
             
-            // 6. DTO로 변환하여 반환
-            return ResponseEntity.ok(new ParticipantPdfFieldDTO(updatedField));
+            // 6. DTO로 변환하여 반환 (민감정보는 복호화하여 응답)
+            ParticipantPdfFieldDTO responseDto = new ParticipantPdfFieldDTO(updatedField);
+            
+            // 클라이언트에게 응답할 때는 필드 값이 암호화된 경우 복호화해서 반환
+            if (isSensitiveField) {
+                String decryptedValue = encryptionUtil.decrypt(updatedField.getValue());
+                responseDto.setValue(decryptedValue);
+                log.info("응답용 민감정보 복호화 처리: {}", fieldName);
+            }
+            
+            return ResponseEntity.ok(responseDto);
             
         } catch (ValidationException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -393,11 +420,37 @@ public class ContractPdfController {
             originalPdf = pdfStorageService.loadOriginalPdf(pdfId);
         }
         
+        // 필드 값 처리 (암호화된 값인 경우 복호화)
+        String fieldValue = field.getValue();
+        String fieldName = field.getFieldName();
+        
+        try {
+            // 민감 정보 필드인 경우
+            boolean isSensitiveField = false;
+            if (field.getFormat() != null) {
+                String formatCode = field.getFormat().getCodeId();
+                isSensitiveField = "001004_0001".equals(formatCode) || "001004_0002".equals(formatCode);
+                
+                if (isSensitiveField) {
+                    // 값이 암호화되어 있는지 확인하고 복호화
+                    try {
+                        fieldValue = encryptionUtil.decrypt(fieldValue);
+                        log.info("민감정보 복호화 처리: {} ({})", fieldName, formatCode);
+                    } catch (Exception e) {
+                        log.error("민감정보 복호화 중 오류 발생: {}", e.getMessage());
+                        // 복호화 실패해도 진행 (원본 값 사용)
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("필드 값 처리 중 오류: {}", e.getMessage());
+        }
+        
         // 필드 값 추가
         byte[] processedPdf = pdfProcessingService.addValueToField(
             originalPdf,
             field,
-            field.getValue(),
+            fieldValue,
             field.getType()
         );
         
@@ -449,7 +502,7 @@ public class ContractPdfController {
             List<ParticipantPdfField> fields = participantPdfFieldRepository.findByPdfId(pdfId);
             log.info("Found {} fields with values for PDF: {}", fields.size(), pdfId);
             
-            // 4. PDF에 필드 값 추가
+            // 4. PDF에 필드 값 추가 (민감 정보는 복호화됨)
             byte[] processedPdf = pdfProcessingService.addValuesToFields(originalPdf, fields);
             
             // 5. 현재 시간(서명 시간) 생성

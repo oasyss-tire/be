@@ -166,7 +166,17 @@ public class CorrectionRequestService {
     public List<CorrectionFieldDTO> getCorrectionFields(Long participantId) {
         List<ParticipantPdfField> fields = participantPdfFieldRepository.findByNeedsCorrectionTrueAndParticipantId(participantId);
         return fields.stream()
-                .map(CorrectionFieldDTO::new)
+                .map(field -> {
+                    // 민감 정보 필드인 경우 복호화된 DTO 반환
+                    if (field.getFormat() != null) {
+                        String formatCode = field.getFormat().getCodeId();
+                        if ("001004_0001".equals(formatCode) || "001004_0002".equals(formatCode)) {
+                            return new CorrectionFieldDTO(field, encryptionUtil);
+                        }
+                    }
+                    // 일반 필드는 그대로 반환
+                    return new CorrectionFieldDTO(field);
+                })
                 .collect(Collectors.toList());
     }
     
@@ -219,7 +229,17 @@ public class CorrectionRequestService {
                 .completedFields(completedCount)
                 .status(status)
                 .fields(fields.stream()
-                        .map(CorrectionFieldDTO::new)
+                        .map(field -> {
+                            // 민감 정보 필드인 경우 복호화된 DTO 반환
+                            if (field.getFormat() != null) {
+                                String formatCode = field.getFormat().getCodeId();
+                                if ("001004_0001".equals(formatCode) || "001004_0002".equals(formatCode)) {
+                                    return new CorrectionFieldDTO(field, encryptionUtil);
+                                }
+                            }
+                            // 일반 필드는 그대로 반환
+                            return new CorrectionFieldDTO(field);
+                        })
                         .collect(Collectors.toList()))
                 .build();
     }
@@ -268,27 +288,55 @@ public class CorrectionRequestService {
             throw new RuntimeException("해당 필드는 재서명이 필요하지 않습니다.");
         }
         
-        // 4. 필드 값 업데이트
-        field.setValue(fieldDTO.getValue());
+        // 4. 민감 정보 확인 및 필요시 암호화 처리
+        String valueToSave = fieldDTO.getValue();
+        boolean isSensitiveField = false;
+        
+        if (field.getFormat() != null) {
+            String formatCode = field.getFormat().getCodeId();
+            isSensitiveField = "001004_0001".equals(formatCode) || "001004_0002".equals(formatCode);
+            
+            if (isSensitiveField) {
+                try {
+                    log.info("민감 정보 필드 식별: {} ({})", field.getFieldName(), formatCode);
+                    // 민감 정보 암호화
+                    valueToSave = encryptionUtil.encrypt(valueToSave);
+                    log.info("민감정보 암호화 처리 완료: {}", field.getFieldName());
+                } catch (Exception e) {
+                    log.error("민감정보 암호화 중 오류 발생: {}", e.getMessage(), e);
+                    throw new RuntimeException("민감정보 처리 중 오류가 발생했습니다: " + e.getMessage());
+                }
+            }
+        }
+        
+        // 5. 필드 값 업데이트
+        field.setValue(valueToSave);
         field.setNeedsCorrection(false); // 재서명 완료 상태로 변경
         
-        // 5. 변경사항 저장
+        // 6. 변경사항 저장
         ParticipantPdfField updatedField = participantPdfFieldRepository.save(field);
         log.info("필드 값 업데이트 완료 - 필드 ID: {}", updatedField.getId());
         
-        // 6. 모든 필드의 재서명이 완료되었는지 확인
+        // 7. 모든 필드의 재서명이 완료되었는지 확인
         List<ParticipantPdfField> remainingFields = 
                 participantPdfFieldRepository.findByNeedsCorrectionTrueAndParticipantId(participantId);
         
-        // 7. 남은 필드가 없으면 완료 처리
+        // 8. 남은 필드가 없으면 완료 처리
         if (remainingFields.isEmpty()) {
             log.info("모든 필드 재서명 완료 - 참여자 ID: {}", participantId);
         } else {
             log.info("남은 재서명 필드 수: {}", remainingFields.size());
         }
         
-        // 8. 응답 생성 및 반환
-        return new CorrectionFieldDTO(updatedField);
+        // 9. 응답 생성 및 반환 (민감 정보의 경우 복호화된 값으로 반환)
+        CorrectionFieldDTO responseDTO;
+        if (isSensitiveField) {
+            responseDTO = new CorrectionFieldDTO(updatedField, encryptionUtil);
+        } else {
+            responseDTO = new CorrectionFieldDTO(updatedField);
+        }
+        
+        return responseDTO;
     }
     
     /**

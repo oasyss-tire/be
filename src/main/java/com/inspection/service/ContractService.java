@@ -463,6 +463,8 @@ public class ContractService {
                 participantField.setRelativeHeight(templateField.getRelativeHeight());
                 participantField.setPage(templateField.getPage());
                 participantField.setConfirmText(templateField.getConfirmText());
+                participantField.setDescription(templateField.getDescription());
+                participantField.setFormat(templateField.getFormat());
                 participantField.setTemplate(template);
                 return participantField;
             })

@@ -10,10 +10,13 @@ import org.springframework.transaction.annotation.Transactional;
 import com.inspection.dto.ContractPdfFieldDTO;
 import com.inspection.dto.ParticipantPdfFieldDTO;
 import com.inspection.dto.SaveContractPdfFieldsRequest;
+import com.inspection.entity.Code;
 import com.inspection.entity.ContractPdfField;
 import com.inspection.entity.ParticipantPdfField;
+import com.inspection.repository.CodeRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +28,8 @@ import lombok.extern.slf4j.Slf4j;
 public class ContractPdfService {
     private final ContractPdfFieldRepository contractPdfFieldRepository;
     private final ParticipantPdfFieldRepository participantPdfFieldRepository;
+    private final CodeRepository codeRepository;
+    private final EncryptionUtil encryptionUtil;
 
     public void saveFields(SaveContractPdfFieldsRequest request) {
         log.info("Deleting existing fields for PDF: {}", request.getPdfId());
@@ -44,6 +49,18 @@ public class ContractPdfService {
                 field.setPage(dto.getPage());
                 field.setValue(dto.getValue());
                 field.setConfirmText(dto.getConfirmText());
+                field.setDescription(dto.getDescription());
+                
+                // 형식 코드 설정 (있는 경우에만)
+                if (dto.getFormatCodeId() != null && !dto.getFormatCodeId().isEmpty()) {
+                    try {
+                        Code formatCode = codeRepository.findById(dto.getFormatCodeId())
+                            .orElse(null);
+                        field.setFormat(formatCode);
+                    } catch (Exception e) {
+                        log.warn("형식 코드를 찾을 수 없습니다: {}", dto.getFormatCodeId());
+                    }
+                }
                 
                 log.debug("Created field entity: {}", field);
                 return field;
@@ -57,13 +74,33 @@ public class ContractPdfService {
 
     public List<ContractPdfFieldDTO> getFieldsByPdfId(String pdfId) {
         return contractPdfFieldRepository.findByPdfId(pdfId).stream()
-            .map(ContractPdfFieldDTO::new)
+            .map(field -> {
+                // 민감 정보 필드인 경우 복호화된 DTO 반환
+                if (field.getFormat() != null) {
+                    String formatCode = field.getFormat().getCodeId();
+                    if ("001004_0001".equals(formatCode) || "001004_0002".equals(formatCode)) {
+                        return new ContractPdfFieldDTO(field, encryptionUtil);
+                    }
+                }
+                // 일반 필드는 그대로 반환
+                return new ContractPdfFieldDTO(field);
+            })
             .collect(Collectors.toList());
     }
 
     public List<ParticipantPdfFieldDTO> getParticipantFieldsByPdfId(String pdfId) {
         return participantPdfFieldRepository.findByPdfId(pdfId).stream()
-            .map(ParticipantPdfFieldDTO::new)
+            .map(field -> {
+                // 민감 정보 필드인 경우 복호화된 DTO 반환
+                if (field.getFormat() != null) {
+                    String formatCode = field.getFormat().getCodeId();
+                    if ("001004_0001".equals(formatCode) || "001004_0002".equals(formatCode)) {
+                        return new ParticipantPdfFieldDTO(field, encryptionUtil);
+                    }
+                }
+                // 일반 필드는 그대로 반환
+                return new ParticipantPdfFieldDTO(field);
+            })
             .collect(Collectors.toList());
     }
     
