@@ -16,6 +16,12 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
     // 사업자번호로 회사 찾기
     Optional<Company> findByBusinessNumber(String businessNumber);
     
+    // 수탁코드로 회사 찾기
+    Optional<Company> findByTrusteeCode(String trusteeCode);
+    
+    // 종사업장번호로 회사 찾기
+    Optional<Company> findBySubBusinessNumber(String subBusinessNumber);
+    
     // 활성화된 회사 목록 찾기
     List<Company> findByActiveTrue();
     

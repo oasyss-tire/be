@@ -1,6 +1,7 @@
 package com.inspection.dto;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -21,8 +22,8 @@ public class ContractDTO {
     private String title;
     private Integer progressRate;
     private LocalDateTime createdAt;
-    private LocalDateTime startDate;
-    private LocalDateTime expiryDate;
+    private LocalDate startDate;
+    private LocalDate expiryDate;
     private LocalDateTime completedAt;
     private LocalDateTime lastModifiedAt;
     private String createdBy;
@@ -48,6 +49,10 @@ public class ContractDTO {
     private Long companyId;
     private String companyName;
     private String storeCode;
+    private String storeNumber;      // 점번 (001~999) 추가
+    private String storeTelNumber;   // 매장 전화번호 (055-123-4567) 추가
+    private LocalDate insuranceStartDate; // 하자보증증권 보험시작일 추가
+    private LocalDate insuranceEndDate;   // 하자보증증권 보험종료일 추가
     private List<ParticipantDTO> participants;
 
     public ContractDTO(Contract contract, EncryptionUtil encryptionUtil) {
@@ -55,8 +60,15 @@ public class ContractDTO {
         this.title = contract.getTitle();
         this.progressRate = contract.getProgressRate();
         this.createdAt = contract.getCreatedAt();
-        this.startDate = contract.getStartDate();
-        this.expiryDate = contract.getExpiryDate();
+        
+        // LocalDateTime -> LocalDate 변환 (만약 LocalDateTime인 경우)
+        if (contract.getStartDate() != null) {
+            this.startDate = contract.getStartDate();
+        }
+        if (contract.getExpiryDate() != null) {
+            this.expiryDate = contract.getExpiryDate();
+        }
+        
         this.completedAt = contract.getCompletedAt();
         this.lastModifiedAt = contract.getLastModifiedAt();
         this.createdBy = contract.getCreatedBy();
@@ -91,8 +103,14 @@ public class ContractDTO {
         
         if (contract.getCompany() != null) {
             this.companyId = contract.getCompany().getId();
-            this.companyName = contract.getCompany().getStoreName();
+            this.companyName = contract.getCompany().getCompanyName();
             this.storeCode = contract.getCompany().getStoreCode();
+            this.storeNumber = contract.getCompany().getStoreNumber();
+            this.storeTelNumber = contract.getCompany().getStoreTelNumber();
+            
+            // Company와 Contract에서 LocalDate 타입 그대로 사용
+            this.insuranceStartDate = contract.getCompany().getInsuranceStartDate();
+            this.insuranceEndDate = contract.getCompany().getInsuranceEndDate();
         }
         
         this.participants = contract.getParticipants().stream()

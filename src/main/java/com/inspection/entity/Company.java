@@ -54,6 +54,12 @@ public class Company {
     @Column
     private LocalDate endDate;       // 종료일자
     
+    @Column
+    private LocalDate insuranceStartDate; // 하자보증증권 보험시작일 
+    
+    @Column
+    private LocalDate insuranceEndDate;   // 하자보증증권 보험종료일 
+    
     @Column(length = 50)
     private String managerName;      // 담당자 (정재현)
     
@@ -65,6 +71,9 @@ public class Company {
     
     @Column(length = 20)
     private String phoneNumber;      // 휴대폰번호 (010-0000-0000)
+    
+    @Column(length = 20)
+    private String storeTelNumber;   // 매장 전화번호 (055-123-4567)
     
     @Column(length = 255)
     private String address;          // 주소 (경상남도 창원~~)

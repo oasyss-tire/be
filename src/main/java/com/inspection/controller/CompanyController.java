@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.inspection.dto.CompanyDTO;
 import com.inspection.dto.CreateCompanyRequest;
@@ -52,22 +53,40 @@ public class CompanyController {
     
     // 회사 생성 API (JSON 방식)
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CompanyDTO> createCompany(@RequestBody CreateCompanyRequest request) {
+    public ResponseEntity<?> createCompany(@RequestBody CreateCompanyRequest request) {
         log.info("회사 생성 요청: {}", request.getStoreName());
         
-        // 현재 인증된 사용자 정보 가져오기
-        String userId = getCurrentUserId();
-        if (StringUtils.hasText(userId)) {
-            request.setCreatedBy(userId);
+        try {
+            // 현재 인증된 사용자 정보 가져오기
+            String userId = getCurrentUserId();
+            if (StringUtils.hasText(userId)) {
+                request.setCreatedBy(userId);
+            }
+            
+            CompanyDTO createdCompany = companyService.createCompany(request);
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
+        } catch (ResponseStatusException e) {
+            // ResponseStatusException의 메시지에서 불필요한 부분 제거
+            String cleanMessage = e.getReason() != null ? e.getReason() : "회사 생성 중 오류가 발생했습니다";
+            log.error("회사 생성 중 오류 발생: {}", cleanMessage);
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", "입력 오류", "message", cleanMessage));
+        } catch (IllegalArgumentException e) {
+            // IllegalArgumentException 처리
+            log.error("회사 생성 중 오류 발생: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "입력 오류", "message", e.getMessage()));
+        } catch (Exception e) {
+            // 기타 서버 오류 처리
+            log.error("회사 생성 중 서버 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "서버 오류", "message", "회사 생성 중 오류가 발생했습니다"));
         }
-        
-        CompanyDTO createdCompany = companyService.createCompany(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
     }
     
     // 회사 생성 API (이미지 포함)
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<CompanyDTO> createCompanyWithImages(
+    public ResponseEntity<?> createCompanyWithImages(
             @RequestPart("company") CreateCompanyRequest request,
             @RequestPart(value = "frontImage", required = false) MultipartFile frontImage,
             @RequestPart(value = "backImage", required = false) MultipartFile backImage,
@@ -77,24 +96,42 @@ public class CompanyController {
         
         log.info("회사 생성 요청 (이미지 포함): {}", request.getStoreName());
         
-        // 현재 인증된 사용자 정보 가져오기
-        String userId = getCurrentUserId();
-        if (StringUtils.hasText(userId)) {
-            request.setCreatedBy(userId);
-        }
-        
-        // 1. 회사 생성
-        CompanyDTO createdCompany = companyService.createCompany(request);
-        
-        // 2. 이미지가 하나라도 있으면 이미지 업로드
-        if (frontImage != null || backImage != null || leftSideImage != null || 
-            rightSideImage != null || fullImage != null) {
+        try {
+            // 현재 인증된 사용자 정보 가져오기
+            String userId = getCurrentUserId();
+            if (StringUtils.hasText(userId)) {
+                request.setCreatedBy(userId);
+            }
             
-            createdCompany = companyService.uploadCompanyImages(
-                createdCompany.getId(), frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+            // 1. 회사 생성
+            CompanyDTO createdCompany = companyService.createCompany(request);
+            
+            // 2. 이미지가 하나라도 있으면 이미지 업로드
+            if (frontImage != null || backImage != null || leftSideImage != null || 
+                rightSideImage != null || fullImage != null) {
+                
+                createdCompany = companyService.uploadCompanyImages(
+                    createdCompany.getId(), frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+            }
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
+        } catch (ResponseStatusException e) {
+            // ResponseStatusException의 메시지에서 불필요한 부분 제거
+            String cleanMessage = e.getReason() != null ? e.getReason() : "회사 생성 중 오류가 발생했습니다";
+            log.error("회사 생성 중 오류 발생 (이미지 포함): {}", cleanMessage);
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", "입력 오류", "message", cleanMessage));
+        } catch (IllegalArgumentException e) {
+            // IllegalArgumentException 처리
+            log.error("회사 생성 중 오류 발생 (이미지 포함): {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "입력 오류", "message", e.getMessage()));
+        } catch (Exception e) {
+            // 기타 서버 오류 처리
+            log.error("회사 생성 중 서버 오류 발생 (이미지 포함): {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "서버 오류", "message", "회사 생성 중 오류가 발생했습니다"));
         }
-        
-        return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
     }
     
     /**
@@ -183,18 +220,37 @@ public class CompanyController {
 
     // 회사 정보 수정 API (JSON 방식)
     @PutMapping(value = "/{companyId}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CompanyDTO> updateCompany(
+    public ResponseEntity<?> updateCompany(
             @PathVariable Long companyId,
             @RequestBody CreateCompanyRequest request) {
         
         log.info("회사 정보 수정 요청: 회사 ID {}", companyId);
-        CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
-        return ResponseEntity.ok(updatedCompany);
+        
+        try {
+            CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
+            return ResponseEntity.ok(updatedCompany);
+        } catch (ResponseStatusException e) {
+            // ResponseStatusException의 메시지에서 불필요한 부분 제거
+            String cleanMessage = e.getReason() != null ? e.getReason() : "회사 정보 수정 중 오류가 발생했습니다";
+            log.error("회사 정보 수정 중 오류 발생: {}", cleanMessage);
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", "입력 오류", "message", cleanMessage));
+        } catch (IllegalArgumentException e) {
+            // IllegalArgumentException 처리
+            log.error("회사 정보 수정 중 오류 발생: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "입력 오류", "message", e.getMessage()));
+        } catch (Exception e) {
+            // 기타 서버 오류 처리
+            log.error("회사 정보 수정 중 서버 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "서버 오류", "message", "회사 정보 수정 중 오류가 발생했습니다"));
+        }
     }
     
     // 회사 정보와 이미지 함께 수정 API
     @PutMapping(value = "/{companyId}/with-images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<CompanyDTO> updateCompanyWithImages(
+    public ResponseEntity<?> updateCompanyWithImages(
             @PathVariable Long companyId,
             @RequestPart("company") CreateCompanyRequest request,
             @RequestPart(value = "frontImage", required = false) MultipartFile frontImage,
@@ -205,18 +261,36 @@ public class CompanyController {
         
         log.info("회사 정보 및 이미지 수정 요청: 회사 ID {}", companyId);
         
-        // 1. 회사 정보 수정
-        CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
-        
-        // 2. 이미지가 하나라도 있으면 이미지 수정
-        if (frontImage != null || backImage != null || leftSideImage != null || 
-            rightSideImage != null || fullImage != null) {
+        try {
+            // 1. 회사 정보 수정
+            CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
             
-            updatedCompany = companyService.updateCompanyImages(
-                companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+            // 2. 이미지가 하나라도 있으면 이미지 수정
+            if (frontImage != null || backImage != null || leftSideImage != null || 
+                rightSideImage != null || fullImage != null) {
+                
+                updatedCompany = companyService.updateCompanyImages(
+                    companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
+            }
+            
+            return ResponseEntity.ok(updatedCompany);
+        } catch (ResponseStatusException e) {
+            // ResponseStatusException의 메시지에서 불필요한 부분 제거
+            String cleanMessage = e.getReason() != null ? e.getReason() : "회사 정보 수정 중 오류가 발생했습니다";
+            log.error("회사 정보 및 이미지 수정 중 오류 발생: {}", cleanMessage);
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", "입력 오류", "message", cleanMessage));
+        } catch (IllegalArgumentException e) {
+            // IllegalArgumentException 처리
+            log.error("회사 정보 및 이미지 수정 중 오류 발생: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "입력 오류", "message", e.getMessage()));
+        } catch (Exception e) {
+            // 기타 서버 오류 처리
+            log.error("회사 정보 및 이미지 수정 중 서버 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "서버 오류", "message", "회사 정보 수정 중 오류가 발생했습니다"));
         }
-        
-        return ResponseEntity.ok(updatedCompany);
     }
     
     // 회사 삭제 API

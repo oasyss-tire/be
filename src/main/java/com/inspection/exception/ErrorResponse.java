@@ -1,19 +1,24 @@
 package com.inspection.exception;
 
-import lombok.Getter;
-import lombok.Setter;
+import java.time.LocalDateTime;
+
 import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@Getter
-@Setter
-@AllArgsConstructor
-@NoArgsConstructor
-
-/* 에러 응답을 위한 DTO 클래스
-예시) {"code": "404", "message": "점검 기록을 찾을 수 없습니다"}
+/**
+ * 오류 응답을 표현하는 클래스
+ * 클라이언트에게 일관된 형식의 오류 정보를 제공합니다.
  */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ErrorResponse {
-    private String code;
-    private String message;
+    private LocalDateTime timestamp; // 오류 발생 시간
+    private int status;              // HTTP 상태 코드
+    private String error;            // 오류 유형
+    private String message;          // 오류 메시지
+    private String path;             // 요청 경로
 } 

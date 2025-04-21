@@ -22,10 +22,13 @@ public class CompanyDTO {
     private boolean active;          // 상태
     private LocalDate startDate;     // 시작일자
     private LocalDate endDate;       // 종료일자
+    private LocalDate insuranceStartDate; // 하자보증증권 보험시작일
+    private LocalDate insuranceEndDate;   // 하자보증증권 보험종료일
     private String managerName;      // 담당자
     private String email;            // 이메일
     private String subBusinessNumber; // 종사업장번호
     private String phoneNumber;      // 휴대폰번호
+    private String storeTelNumber;   // 매장 전화번호
     private String address;          // 주소
     private String businessType;     // 업태
     private String businessCategory; // 종목
@@ -51,10 +54,13 @@ public class CompanyDTO {
         dto.setActive(company.isActive());
         dto.setStartDate(company.getStartDate());
         dto.setEndDate(company.getEndDate());
+        dto.setInsuranceStartDate(company.getInsuranceStartDate());
+        dto.setInsuranceEndDate(company.getInsuranceEndDate());
         dto.setManagerName(company.getManagerName());
         dto.setEmail(company.getEmail());
         dto.setSubBusinessNumber(company.getSubBusinessNumber());
         dto.setPhoneNumber(company.getPhoneNumber());
+        dto.setStoreTelNumber(company.getStoreTelNumber());
         dto.setAddress(company.getAddress());
         dto.setBusinessType(company.getBusinessType());
         dto.setBusinessCategory(company.getBusinessCategory());

@@ -19,6 +19,9 @@ import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -35,16 +38,8 @@ public class CompanyService {
      */
     @Transactional
     public CompanyDTO createCompany(CreateCompanyRequest request) {
-        // 매장코드 중복 체크
-        if (companyRepository.findByStoreCode(request.getStoreCode()).isPresent()) {
-            throw new RuntimeException("이미 존재하는 매장코드입니다: " + request.getStoreCode());
-        }
-        
-        // 사업자번호 중복 체크 (사업자번호가 있는 경우)
-        if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
-            companyRepository.findByBusinessNumber(request.getBusinessNumber()).isPresent()) {
-            throw new RuntimeException("이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
-        }
+        // 중복 정보 체크
+        checkDuplicateInfo(request);
         
         // storeNumber 자동 생성 (001~999)
         String storeNumber = generateNextStoreNumber();
@@ -83,7 +78,7 @@ public class CompanyService {
         
         // 999를 초과하면 예외 발생
         if (nextNumber > 999) {
-            throw new RuntimeException("매장 번호가 최대값(999)을 초과했습니다.");
+            throw new IllegalStateException("매장 번호가 최대값(999)을 초과했습니다.");
         }
         
         // 3자리 숫자로 포맷팅 (001, 002, ...)
@@ -179,52 +174,106 @@ public class CompanyService {
      */
     @Transactional
     public CompanyDTO updateCompany(Long companyId, CreateCompanyRequest request) {
-        Company company = companyRepository.findById(companyId)
-            .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
-        
-        // 매장코드 중복 체크 (변경된 경우)
-        if (!company.getStoreCode().equals(request.getStoreCode()) &&
-            companyRepository.findByStoreCode(request.getStoreCode()).isPresent()) {
-            throw new RuntimeException("이미 존재하는 매장코드입니다: " + request.getStoreCode());
+        try {
+            Company company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new IllegalArgumentException("회사를 찾을 수 없습니다. ID: " + companyId));
+            
+            // 자기 자신과의 비교는 제외하고 중복 체크
+            // 매장코드 중복 체크 (변경된 경우)
+            if (!company.getStoreCode().equals(request.getStoreCode())) {
+                companyRepository.findByStoreCode(request.getStoreCode())
+                    .ifPresent(c -> {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 존재하는 매장코드입니다: " + request.getStoreCode());
+                    });
+            }
+            
+            // 사업자번호 중복 체크 (변경된 경우)
+            if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
+                !request.getBusinessNumber().equals(company.getBusinessNumber())) {
+                companyRepository.findByBusinessNumber(request.getBusinessNumber())
+                    .ifPresent(c -> {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
+                    });
+            }
+            
+            // 수탁코드 중복 체크 (변경된 경우)
+            if (request.getTrusteeCode() != null && !request.getTrusteeCode().isEmpty() &&
+                !request.getTrusteeCode().equals(company.getTrusteeCode())) {
+                companyRepository.findByTrusteeCode(request.getTrusteeCode())
+                    .ifPresent(c -> {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다: " + request.getTrusteeCode());
+                    });
+            }
+            
+            // 종사업장번호 중복 체크 (변경된 경우)
+            if (request.getSubBusinessNumber() != null && !request.getSubBusinessNumber().isEmpty() &&
+                !request.getSubBusinessNumber().equals(company.getSubBusinessNumber())) {
+                companyRepository.findBySubBusinessNumber(request.getSubBusinessNumber())
+                    .ifPresent(c -> {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
+                    });
+            }
+            
+            // 기존 등록자 정보 저장 (수정 시에는 등록자 정보를 변경하지 않음)
+            String originalCreatedBy = company.getCreatedBy();
+            
+            // 회사 정보 업데이트
+            company.setStoreCode(request.getStoreCode());
+            company.setStoreNumber(request.getStoreNumber());
+            company.setStoreName(request.getStoreName());
+            company.setTrustee(request.getTrustee());
+            company.setTrusteeCode(request.getTrusteeCode());
+            company.setBusinessNumber(request.getBusinessNumber());
+            company.setCompanyName(request.getCompanyName());
+            company.setRepresentativeName(request.getRepresentativeName());
+            company.setActive(request.isActive());
+            company.setStartDate(request.getStartDate());
+            company.setEndDate(request.getEndDate());
+            company.setInsuranceStartDate(request.getInsuranceStartDate());
+            company.setInsuranceEndDate(request.getInsuranceEndDate());
+            company.setManagerName(request.getManagerName());
+            company.setEmail(request.getEmail());
+            company.setSubBusinessNumber(request.getSubBusinessNumber());
+            company.setPhoneNumber(request.getPhoneNumber());
+            company.setStoreTelNumber(request.getStoreTelNumber());
+            company.setAddress(request.getAddress());
+            company.setBusinessType(request.getBusinessType());
+            company.setBusinessCategory(request.getBusinessCategory());
+            
+            // 기존 등록자 정보 복원 (수정 시에는 등록자 정보를 변경하지 않음)
+            company.setCreatedBy(originalCreatedBy);
+            
+            Company updatedCompany = companyRepository.save(company);
+            log.info("회사 정보 수정 완료: {}", updatedCompany.getStoreName());
+            
+            return CompanyDTO.fromEntity(updatedCompany);
+        } catch (ResponseStatusException ex) {
+            // 이미 ResponseStatusException인 경우 그대로 전달
+            throw ex;
+        } catch (IllegalArgumentException ex) {
+            // IllegalArgumentException을 ResponseStatusException으로 변환
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, ex.getMessage());
+        } catch (Exception ex) {
+            // 기타 예외는 로깅 후 사용자 친화적인 오류로 변환
+            log.error("회사 정보 수정 중 오류 발생: {}", ex.getMessage(), ex);
+            
+            // 메시지에서 오류 원인 분석
+            String errorMessage = ex.getMessage();
+            if (errorMessage != null) {
+                if (errorMessage.contains("trustee_code") || errorMessage.contains("TrusteeCode")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다.");
+                } else if (errorMessage.contains("sub_business_number") || errorMessage.contains("SubBusinessNumber")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다.");
+                } else if (errorMessage.contains("business_number") || errorMessage.contains("BusinessNumber")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 사업자번호입니다.");
+                } else if (errorMessage.contains("store_code") || errorMessage.contains("StoreCode")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 매장코드입니다.");
+                }
+            }
+            
+            // 기본 오류 메시지
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "회사 정보 수정 중 오류가 발생했습니다.");
         }
-        
-        // 사업자번호 중복 체크 (변경된 경우)
-        if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
-            !request.getBusinessNumber().equals(company.getBusinessNumber()) &&
-            companyRepository.findByBusinessNumber(request.getBusinessNumber()).isPresent()) {
-            throw new RuntimeException("이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
-        }
-        
-        // 기존 등록자 정보 저장 (수정 시에는 등록자 정보를 변경하지 않음)
-        String originalCreatedBy = company.getCreatedBy();
-        
-        // 회사 정보 업데이트
-        company.setStoreCode(request.getStoreCode());
-        company.setStoreNumber(request.getStoreNumber());
-        company.setStoreName(request.getStoreName());
-        company.setTrustee(request.getTrustee());
-        company.setTrusteeCode(request.getTrusteeCode());
-        company.setBusinessNumber(request.getBusinessNumber());
-        company.setCompanyName(request.getCompanyName());
-        company.setRepresentativeName(request.getRepresentativeName());
-        company.setActive(request.isActive());
-        company.setStartDate(request.getStartDate());
-        company.setEndDate(request.getEndDate());
-        company.setManagerName(request.getManagerName());
-        company.setEmail(request.getEmail());
-        company.setSubBusinessNumber(request.getSubBusinessNumber());
-        company.setPhoneNumber(request.getPhoneNumber());
-        company.setAddress(request.getAddress());
-        company.setBusinessType(request.getBusinessType());
-        company.setBusinessCategory(request.getBusinessCategory());
-        
-        // 기존 등록자 정보 복원 (수정 시에는 등록자 정보를 변경하지 않음)
-        company.setCreatedBy(originalCreatedBy);
-        
-        Company updatedCompany = companyRepository.save(company);
-        log.info("회사 정보 수정 완료: {}", updatedCompany.getStoreName());
-        
-        return CompanyDTO.fromEntity(updatedCompany);
     }
     
     /**
@@ -461,5 +510,55 @@ public class CompanyService {
                 return dto;
             })
             .collect(Collectors.toList());
+    }
+
+    private void checkDuplicateInfo(CreateCompanyRequest request) {
+        // 매장코드 중복 체크
+        if (StringUtils.hasText(request.getStoreCode())) {
+            companyRepository.findByStoreCode(request.getStoreCode())
+                    .ifPresent(company -> {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 매장코드입니다: " + request.getStoreCode());
+                    });
+        }
+
+        // 사업자번호 중복 체크
+        if (StringUtils.hasText(request.getBusinessNumber())) {
+            companyRepository.findByBusinessNumber(request.getBusinessNumber())
+                    .ifPresent(company -> {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 사업자번호입니다: " + request.getBusinessNumber());
+                    });
+        }
+            
+        // 수탁코드 중복 체크 (값이 있는 경우에만)
+        if (StringUtils.hasText(request.getTrusteeCode())) {
+            try {
+                companyRepository.findByTrusteeCode(request.getTrusteeCode())
+                        .ifPresent(company -> {
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다: " + request.getTrusteeCode());
+                        });
+            } catch (Exception e) {
+                if (e instanceof ResponseStatusException) {
+                    throw e;
+                }
+                log.error("수탁코드 중복 체크 중 오류 발생: {}", e.getMessage(), e);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다: " + request.getTrusteeCode());
+            }
+        }
+        
+        // 종사업장번호 중복 체크 (값이 있는 경우에만)
+        if (StringUtils.hasText(request.getSubBusinessNumber())) {
+            try {
+                companyRepository.findBySubBusinessNumber(request.getSubBusinessNumber())
+                        .ifPresent(company -> {
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
+                        });
+            } catch (Exception e) {
+                if (e instanceof ResponseStatusException) {
+                    throw e;
+                }
+                log.error("종사업장번호 중복 체크 중 오류 발생: {}", e.getMessage(), e);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
+            }
+        }
     }
 } 

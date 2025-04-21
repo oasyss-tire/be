@@ -72,11 +72,11 @@ public class ContractService {
     private static final String CONTRACT_STATUS_COMPLETED = "001002_0002"; // 계약완료
     
     // 참여자 상태 코드 상수 정의
-    private static final String PARTICIPANT_STATUS_WAITING = "008001_0003";  // 서명 대기
-    private static final String PARTICIPANT_STATUS_SIGNING = "008001_0004";  // 서명 중
-    private static final String PARTICIPANT_STATUS_APPROVAL_WAITING = "008001_0001";  // 승인 대기
-    private static final String PARTICIPANT_STATUS_APPROVED = "008001_0002";  // 승인 완료
-    private static final String PARTICIPANT_STATUS_REJECTED = "008001_0005";  // 승인 거부
+    private static final String PARTICIPANT_STATUS_WAITING = "007001_0003";  // 서명 대기
+    private static final String PARTICIPANT_STATUS_SIGNING = "007001_0004";  // 서명 중
+    private static final String PARTICIPANT_STATUS_APPROVAL_WAITING = "007001_0001";  // 승인 대기
+    private static final String PARTICIPANT_STATUS_APPROVED = "007001_0002";  // 승인 완료
+    private static final String PARTICIPANT_STATUS_REJECTED = "007001_0005";  // 승인 거부
     
 
     // 계약 생성 시 템플릿 매핑 처리
@@ -101,10 +101,13 @@ public class ContractService {
         contract.setDescription(request.getDescription());
         contract.setStartDate(request.getStartDate());
         contract.setExpiryDate(request.getExpiryDate());
-        contract.setDeadlineDate(request.getDeadlineDate());
         contract.setCompany(company);
         contract.setCreatedBy(request.getCreatedBy());
         contract.setDepartment(request.getDepartment());
+        
+        // 하자보증증권 정보 설정
+        contract.setInsuranceStartDate(request.getInsuranceStartDate());
+        contract.setInsuranceEndDate(request.getInsuranceEndDate());
         
         // 3. 기본값 설정
         LocalDateTime now = LocalDateTime.now();
@@ -911,7 +914,7 @@ public class ContractService {
         
         // 이미 재서명 요청 상태인 경우 예외 발생
         if (participant.getStatusCode() != null && 
-            "008001_0006".equals(participant.getStatusCode().getCodeId())) {
+            "007001_0006".equals(participant.getStatusCode().getCodeId())) {
             throw new IllegalStateException("이미 재서명 요청 상태입니다.");
         }
         
@@ -919,8 +922,8 @@ public class ContractService {
         
         try {
             // 상태를 '재서명 요청'으로 변경
-            Code resignStatus = codeRepository.findById("008001_0006")
-                .orElseThrow(() -> new EntityNotFoundException("재서명 요청 상태 코드를 찾을 수 없습니다: 008001_0006"));
+            Code resignStatus = codeRepository.findById("007001_0006")
+                .orElseThrow(() -> new EntityNotFoundException("재서명 요청 상태 코드를 찾을 수 없습니다: 007001_0006"));
             
             participant.setStatusCode(resignStatus);
             
@@ -968,7 +971,7 @@ public class ContractService {
         
         // 재서명 요청 상태인지 확인
         if (participant.getStatusCode() == null || 
-            !"008001_0006".equals(participant.getStatusCode().getCodeId())) {
+            !"007001_0006".equals(participant.getStatusCode().getCodeId())) {
             throw new IllegalStateException("재서명 요청 상태인 참여자만 승인할 수 있습니다.");
         }
         

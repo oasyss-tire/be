@@ -21,10 +21,13 @@ public class CreateCompanyRequest {
     private boolean active = true;   // 상태 (기본값: 활성화)
     private LocalDate startDate;     // 시작일자
     private LocalDate endDate;       // 종료일자
+    private LocalDate insuranceStartDate; // 하자보증증권 보험시작일
+    private LocalDate insuranceEndDate;   // 하자보증증권 보험종료일
     private String managerName;      // 담당자
     private String email;            // 이메일
     private String subBusinessNumber; // 종사업장번호
     private String phoneNumber;      // 휴대폰번호
+    private String storeTelNumber;   // 매장 전화번호
     private String address;          // 주소
     private String businessType;     // 업태
     private String businessCategory; // 종목
@@ -44,10 +47,13 @@ public class CreateCompanyRequest {
         company.setActive(this.active);
         company.setStartDate(this.startDate);
         company.setEndDate(this.endDate);
+        company.setInsuranceStartDate(this.insuranceStartDate);
+        company.setInsuranceEndDate(this.insuranceEndDate);
         company.setManagerName(this.managerName);
         company.setEmail(this.email);
         company.setSubBusinessNumber(this.subBusinessNumber);
         company.setPhoneNumber(this.phoneNumber);
+        company.setStoreTelNumber(this.storeTelNumber);
         company.setAddress(this.address);
         company.setBusinessType(this.businessType);
         company.setBusinessCategory(this.businessCategory);

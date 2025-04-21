@@ -55,8 +55,8 @@ public class CorrectionRequestService {
     private String uploadPath;
     
     // 참여자 상태 코드 상수
-    private static final String PARTICIPANT_STATUS_RESIGN_IN_PROGRESS = "008001_0007"; // 재서명 진행중
-    private static final String PARTICIPANT_STATUS_APPROVAL_WAITING = "008001_0001";   // 승인 대기
+    private static final String PARTICIPANT_STATUS_RESIGN_IN_PROGRESS = "007001_0007"; // 재서명 진행중
+    private static final String PARTICIPANT_STATUS_APPROVAL_WAITING = "007001_0001";   // 승인 대기
 
     /**
      * 재서명 요청 생성

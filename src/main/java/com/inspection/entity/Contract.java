@@ -1,6 +1,7 @@
 package com.inspection.entity;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,10 +37,15 @@ public class Contract {
     // private String contractType;         // 계약 구분 (추후 코드로 관리)
     
     private LocalDateTime createdAt;        // 계약 작성일
-    private LocalDateTime startDate;        // 계약 시작일
-    private LocalDateTime expiryDate;       // 계약 만료일
     private LocalDateTime completedAt;      // 계약 완료일
     private LocalDateTime lastModifiedAt;   // 최종 수정일
+
+    private LocalDate startDate;        // 계약 시작일
+    private LocalDate expiryDate;       // 계약 만료일
+    
+    // 하자보증증권 관련 필드 추가
+    private LocalDate insuranceStartDate;   // 하자보증증권 보험시작일
+    private LocalDate insuranceEndDate;     // 하자보증증권 보험종료일
     
     // 추가: 관리자 승인 관련 필드
     private LocalDateTime approvedAt;      // 관리자 승인 일시
@@ -65,7 +71,6 @@ public class Contract {
     private boolean active;  // isActive -> active로 변경
     
     // 계약 관련 추가 필드들
-    private LocalDateTime deadlineDate;     // 서명 마감 기한
     private String contractNumber;          // 계약 번호 (관리용)
     private String department;              // 담당 부서
     
