@@ -38,7 +38,6 @@ public class ChatbotController {
         String userId = (userDetails != null) ? 
             userDetails.getUsername() : "guest";
             
-        log.info("Chat request from user: {}", userId);
         return chatbotService.chat(request.getQuestion(), userId);
     }
     

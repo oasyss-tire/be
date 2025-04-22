@@ -54,7 +54,6 @@ public class CompanyController {
     // 회사 생성 API (JSON 방식)
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> createCompany(@RequestBody CreateCompanyRequest request) {
-        log.info("회사 생성 요청: {}", request.getStoreName());
         
         try {
             // 현재 인증된 사용자 정보 가져오기
@@ -93,8 +92,7 @@ public class CompanyController {
             @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
             @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
             @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
-        
-        log.info("회사 생성 요청 (이미지 포함): {}", request.getStoreName());
+
         
         try {
             // 현재 인증된 사용자 정보 가져오기
@@ -157,8 +155,7 @@ public class CompanyController {
             @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
             @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
             @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
-        
-        log.info("회사 이미지 업로드 요청: 회사 ID {}", companyId);
+
         CompanyDTO updatedCompany = companyService.uploadCompanyImages(
                 companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
         return ResponseEntity.ok(updatedCompany);
@@ -173,8 +170,7 @@ public class CompanyController {
             @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
             @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
             @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
-        
-        log.info("회사 이미지 수정 요청: 회사 ID {}", companyId);
+
         CompanyDTO updatedCompany = companyService.updateCompanyImages(
                 companyId, frontImage, backImage, leftSideImage, rightSideImage, fullImage);
         return ResponseEntity.ok(updatedCompany);
@@ -185,8 +181,7 @@ public class CompanyController {
     public ResponseEntity<CompanyDTO> deleteCompanyImage(
             @PathVariable Long companyId,
             @PathVariable String imageType) {
-        
-        log.info("회사 이미지 삭제 요청: 회사 ID {}, 이미지 타입 {}", companyId, imageType);
+
         CompanyDTO updatedCompany = companyService.deleteCompanyImage(companyId, imageType);
         return ResponseEntity.ok(updatedCompany);
     }
@@ -198,10 +193,8 @@ public class CompanyController {
         
         List<CompanyDTO> companies;
         if (active != null && active) {
-            log.info("활성화된 회사 목록 조회 요청");
             companies = companyService.getActiveCompanies();
         } else {
-            log.info("모든 회사 목록 조회 요청");
             companies = companyService.getAllCompanies();
         }
         
@@ -212,7 +205,6 @@ public class CompanyController {
     // 회사 ID로 회사 정보 조회 API
     @GetMapping("/{companyId}")
     public ResponseEntity<CompanyDTO> getCompanyById(@PathVariable Long companyId) {
-        log.info("회사 정보 조회 요청: 회사 ID {}", companyId);
         CompanyDTO company = companyService.getCompanyById(companyId);
         return ResponseEntity.ok(company);
     }
@@ -223,8 +215,6 @@ public class CompanyController {
     public ResponseEntity<?> updateCompany(
             @PathVariable Long companyId,
             @RequestBody CreateCompanyRequest request) {
-        
-        log.info("회사 정보 수정 요청: 회사 ID {}", companyId);
         
         try {
             CompanyDTO updatedCompany = companyService.updateCompany(companyId, request);
@@ -258,8 +248,7 @@ public class CompanyController {
             @RequestPart(value = "leftSideImage", required = false) MultipartFile leftSideImage,
             @RequestPart(value = "rightSideImage", required = false) MultipartFile rightSideImage,
             @RequestPart(value = "fullImage", required = false) MultipartFile fullImage) {
-        
-        log.info("회사 정보 및 이미지 수정 요청: 회사 ID {}", companyId);
+
         
         try {
             // 1. 회사 정보 수정
@@ -296,7 +285,6 @@ public class CompanyController {
     // 회사 삭제 API
     @DeleteMapping("/{companyId}")
     public ResponseEntity<Map<String, String>> deleteCompany(@PathVariable Long companyId) {
-        log.info("회사 삭제 요청: 회사 ID {}", companyId);
         companyService.deleteCompany(companyId);
         return ResponseEntity.ok(Map.of("message", "회사가 성공적으로 삭제되었습니다."));
     }
@@ -305,7 +293,6 @@ public class CompanyController {
     // 회사 상태 변경 API
     @PutMapping("/{companyId}/toggle-status")
     public ResponseEntity<CompanyDTO> toggleCompanyStatus(@PathVariable Long companyId) {
-        log.info("회사 상태 변경 요청: 회사 ID {}", companyId);
         CompanyDTO updatedCompany = companyService.toggleCompanyStatus(companyId);
         return ResponseEntity.ok(updatedCompany);
     }
@@ -315,8 +302,7 @@ public class CompanyController {
     @GetMapping("/search")
     public ResponseEntity<List<CompanyDTO>> searchCompaniesByName(
             @RequestParam("name") String storeName) {
-        
-        log.info("회사 검색 요청: 매장명 {}", storeName);
+
         List<CompanyDTO> companies = companyService.searchCompaniesByName(storeName);
         return ResponseEntity.ok(companies);
     }
@@ -335,8 +321,6 @@ public class CompanyController {
             
             // URL 디코딩 (한글 파일명 처리)
             filePath = URLDecoder.decode(filePath, StandardCharsets.UTF_8.name());
-            
-            log.info("이미지 파일 요청 경로: {}", filePath);
             
             // 이미지 파일을 Resource로 로드
             Resource resource = companyImageStorageService.loadImageAsResource(filePath);

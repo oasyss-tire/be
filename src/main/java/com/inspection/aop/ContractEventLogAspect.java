@@ -147,8 +147,6 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("계약 생성 이력이 기록되었습니다. 계약번호: {}, 계약자: {}", 
-                contract.getContractNumber(), participantName);
         } catch (Exception e) {
             // 이력 기록 실패 시 예외를 던지지 않고 로그만 남김
             log.error("계약 생성 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -203,7 +201,6 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("계약 상태 변경 이력이 기록되었습니다. 계약번호: {}, 상태: {}", contract.getContractNumber(), statusCodeId);
         } catch (Exception e) {
             log.error("계약 상태 변경 이력 기록 중 오류 발생: {}", e.getMessage(), e);
         }
@@ -241,7 +238,7 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("계약 승인 이력이 기록되었습니다. 계약번호: {}, 승인자: {}", contract.getContractNumber(), approver);
+
         } catch (Exception e) {
             log.error("계약 승인 이력 기록 중 오류 발생: {}", e.getMessage(), e);
         }
@@ -294,7 +291,6 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("계약 비활성화 이력이 기록되었습니다. 계약번호: {}, 사유: {}", contract.getContractNumber(), reason);
         } catch (Exception e) {
             log.error("계약 비활성화 이력 기록 중 오류 발생: {}", e.getMessage(), e);
         }
@@ -411,8 +407,6 @@ public class ContractEventLogAspect {
                 
                 // 이력 저장
                 eventLogRepository.save(eventLog);
-                log.info("참여자 서명 완료 이력이 기록되었습니다. 계약번호: {}, 참여자: {}, 문서: {}, 서명시간: {}", 
-                    contract.getContractNumber(), participantName, templateName, signedAt);
             }
         } catch (Exception e) {
             log.error("참여자 서명 완료 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -504,8 +498,6 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("관리자 재서명 요청 이력이 기록되었습니다. 계약번호: {}, 참여자: {}, 관리자: {}, 요청시간: {}", 
-                contract.getContractNumber(), participant.getName(), adminName, resignRequestTime);
                 
         } catch (Exception e) {
             log.error("관리자 재서명 요청 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -532,9 +524,7 @@ public class ContractEventLogAspect {
             // 현재 사용자 정보 가져오기
             User currentUser = getCurrentUser();
             String adminName = currentUser != null ? currentUser.getUserName() : approver;
-            log.info("현재 로그인 사용자: {}, ID: {}", 
-                adminName, 
-                currentUser != null ? currentUser.getId() : "없음");
+
             
             // 액터 타입 코드 조회
             Code actorTypeCode = codeRepository.findById(ACTOR_TYPE_ADMIN)
@@ -569,7 +559,6 @@ public class ContractEventLogAspect {
             ContractEventLog eventLog = null;
             if (currentUser != null) {
                 // User 객체를 직접 전달하는 메서드 사용
-                log.info("Creating event log with User object: id={}", currentUser.getId());
                 eventLog = ContractEventLog.create(
                     contract,
                     participant,
@@ -583,7 +572,6 @@ public class ContractEventLogAspect {
                 );
             } else {
                 // 문자열 ID 전달
-                log.info("Creating event log with string actorId: {}", approver);
                 eventLog = ContractEventLog.create(
                     contract,
                     participant,
@@ -602,14 +590,7 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLog = eventLogRepository.save(eventLog);
-            log.info("재서명 승인 이력이 기록되었습니다. ID: {}, 계약번호: {}, 참여자: {}, 승인자: {}, 승인시간: {}", 
-                eventLog.getId(), contract.getContractNumber(), participantName, adminName, resignApprovedAt);
-                
-            // DB에 저장된 최종 데이터 상태 로깅
-            log.info("저장된 이력: actorId={}, userId={}, eventTime={}", 
-                eventLog.getActorId(), 
-                eventLog.getUser() != null ? eventLog.getUser().getUserId() : "null",
-                eventLog.getEventTime());
+
         } catch (Exception e) {
             log.error("재서명 승인 이력 기록 중 오류 발생: {}", e.getMessage(), e);
         }
@@ -635,9 +616,6 @@ public class ContractEventLogAspect {
             // 현재 사용자 정보 가져오기 - 일관성을 위해 다른 메서드와 동일한 방식 사용
             User currentUser = getCurrentUser();
             String adminName = currentUser != null ? currentUser.getUserName() : "관리자";
-            log.info("현재 로그인 사용자: {}, ID: {}", 
-                adminName, 
-                currentUser != null ? currentUser.getId() : "없음");
             
             // 액터 타입 코드 조회
             Code actorTypeCode = codeRepository.findById(ACTOR_TYPE_ADMIN)
@@ -665,7 +643,7 @@ public class ContractEventLogAspect {
             ContractEventLog eventLog = null;
             if (currentUser != null) {
                 // User 객체를 직접 전달하는 메서드 사용
-                log.info("Creating event log with User object: id={}", currentUser.getId());
+
                 eventLog = ContractEventLog.create(
                     contract,
                     participant,
@@ -680,7 +658,7 @@ public class ContractEventLogAspect {
                 );
             } else {
                 // 문자열 ID 전달
-                log.info("Creating event log with string actorId: {}", adminName);
+
                 eventLog = ContractEventLog.create(
                     contract,
                     participant,
@@ -695,17 +673,8 @@ public class ContractEventLogAspect {
                 );
             }
             
-            // 이벤트 생성 시간 설정 확인
-            log.info("이벤트 생성 시간: {}", eventLog.getEventTime());
-            
             // 이력 저장
             eventLog = eventLogRepository.save(eventLog);
-            log.info("참여자 거부 이력이 기록되었습니다. ID: {}, 계약번호: {}, 참여자: {}, 거부자: {}, 사유: {}", 
-                eventLog.getId(), contract.getContractNumber(), participantName, adminName, reason);
-            
-            // DB에 저장된 최종 데이터 상태 로깅
-            log.info("저장된 이력: actorId={}, userId={}", eventLog.getActorId(), 
-                eventLog.getUser() != null ? eventLog.getUser().getUserId() : "null");
             
         } catch (Exception e) {
             log.error("참여자 거부 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -732,9 +701,7 @@ public class ContractEventLogAspect {
             // 현재 사용자 정보 가져오기
             User currentUser = getCurrentUser();
             String adminName = currentUser != null ? currentUser.getUserName() : "관리자";
-            log.info("현재 로그인 사용자: {}, ID: {}", 
-                adminName, 
-                currentUser != null ? currentUser.getId() : "없음");
+
             
             // 액터 타입 코드 조회
             Code actorTypeCode = codeRepository.findById(ACTOR_TYPE_ADMIN)
@@ -770,7 +737,6 @@ public class ContractEventLogAspect {
             ContractEventLog eventLog = null;
             if (currentUser != null) {
                 // User 객체를 직접 전달하는 메서드 사용
-                log.info("Creating event log with User object: id={}", currentUser.getId());
                 eventLog = ContractEventLog.create(
                     contract,
                     participant,
@@ -785,7 +751,6 @@ public class ContractEventLogAspect {
                 );
             } else {
                 // 문자열 ID 전달
-                log.info("Creating event log with string actorId: {}", adminName);
                 eventLog = ContractEventLog.create(
                     contract,
                     participant,
@@ -805,14 +770,7 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLog = eventLogRepository.save(eventLog);
-            log.info("참여자 승인 이력이 기록되었습니다. ID: {}, 계약번호: {}, 참여자: {}, 승인자: {}, 승인시간: {}", 
-                eventLog.getId(), contract.getContractNumber(), participantName, adminName, approvalTime);
-            
-            // DB에 저장된 최종 데이터 상태 로깅
-            log.info("저장된 이력: actorId={}, userId={}, eventTime={}", 
-                eventLog.getActorId(), 
-                eventLog.getUser() != null ? eventLog.getUser().getUserId() : "null",
-                eventLog.getEventTime());
+
                 
         } catch (Exception e) {
             log.error("참여자 승인 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -906,8 +864,7 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("재서명 완료 이력이 기록되었습니다. 계약번호: {}, 참여자: {}, 완료시간: {}", 
-                contract.getContractNumber(), participantName, resignCompletedTime);
+
                 
         } catch (Exception e) {
             log.error("재서명 완료 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -987,8 +944,7 @@ public class ContractEventLogAspect {
             
             // 이력 저장
             eventLogRepository.save(eventLog);
-            log.info("참여자 재서명 요청 이력이 기록되었습니다. 계약번호: {}, 참여자: {}, 요청시간: {}", 
-                contract.getContractNumber(), participantName, resignRequestTime);
+
                 
         } catch (Exception e) {
             log.error("참여자 재서명 요청 이력 기록 중 오류 발생: {}", e.getMessage(), e);
@@ -1066,8 +1022,6 @@ public class ContractEventLogAspect {
 
             // 로그 저장
             eventLogRepository.save(eventLog);
-            log.info("참여자 문서 업로드 이력이 기록되었습니다. 계약번호: {}, 참여자: {}, 문서: {}, 업로드시간: {}", 
-                contract.getContractNumber(), participantName, data.getDocumentName(), uploadTime);
         } catch (Exception e) {
             log.error("참여자 문서 업로드 이력 기록 중 오류 발생: {}", e.getMessage(), e);
         }

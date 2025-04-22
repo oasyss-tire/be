@@ -99,7 +99,6 @@ public class ServiceHistoryController {
     public ResponseEntity<ServiceHistoryDTO> createServiceHistory(
             @Valid @RequestBody CreateServiceHistoryDTO dto) {
         ServiceHistoryDTO createdServiceHistory = serviceHistoryService.createServiceHistory(dto);
-        log.info("AS 이력이 생성되었습니다. ID: {}", createdServiceHistory.getServiceHistoryId());
         return ResponseEntity.status(HttpStatus.CREATED).body(createdServiceHistory);
     }
     
@@ -111,7 +110,6 @@ public class ServiceHistoryController {
             @PathVariable Long id,
             @Valid @RequestBody CreateServiceHistoryDTO dto) {
         ServiceHistoryDTO updatedServiceHistory = serviceHistoryService.updateServiceHistory(id, dto);
-        log.info("AS 이력이 수정되었습니다. ID: {}", updatedServiceHistory.getServiceHistoryId());
         return ResponseEntity.ok(updatedServiceHistory);
     }
     
@@ -121,7 +119,6 @@ public class ServiceHistoryController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteServiceHistory(@PathVariable Long id) {
         serviceHistoryService.deleteServiceHistory(id);
-        log.info("AS 이력이 삭제되었습니다. ID: {}", id);
         return ResponseEntity.noContent().build();
     }
 } 

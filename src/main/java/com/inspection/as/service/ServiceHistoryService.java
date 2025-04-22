@@ -127,7 +127,6 @@ public class ServiceHistoryService {
                 .build();
         
         ServiceHistory savedServiceHistory = serviceHistoryRepository.save(serviceHistory);
-        log.info("AS 이력이 생성되었습니다. ID: {}", savedServiceHistory.getServiceHistoryId());
         
         return ServiceHistoryDTO.fromEntity(savedServiceHistory);
     }
@@ -182,7 +181,6 @@ public class ServiceHistoryService {
         }
         
         ServiceHistory updatedServiceHistory = serviceHistoryRepository.save(serviceHistory);
-        log.info("AS 이력이 수정되었습니다. ID: {}", updatedServiceHistory.getServiceHistoryId());
         
         return ServiceHistoryDTO.fromEntity(updatedServiceHistory);
     }
@@ -196,6 +194,5 @@ public class ServiceHistoryService {
                 .orElseThrow(() -> new EntityNotFoundException("AS 이력을 찾을 수 없습니다: " + id));
         
         serviceHistoryRepository.delete(serviceHistory);
-        log.info("AS 이력이 삭제되었습니다. ID: {}", id);
     }
 } 

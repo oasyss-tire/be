@@ -108,7 +108,6 @@ public class AuthController {
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
                 tokenProvider.invalidateToken(token);
-                log.info("사용자 로그아웃 성공");
                 return ResponseEntity.ok().body(Map.of("message", "로그아웃 되었습니다."));
             }
             return ResponseEntity.badRequest().body(Map.of("message", "유효하지 않은 토큰입니다."));

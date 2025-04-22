@@ -383,8 +383,6 @@ public class ServiceRequestService {
                 .build();
         
         ServiceRequest savedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("새 AS 접수가 생성되었습니다. ID: {}, 접수번호: {}", 
-                savedServiceRequest.getServiceRequestId(), savedServiceRequest.getRequestNumber());
         
         return enrichDtoWithCompanyInfo(ServiceRequestDTO.fromEntity(savedServiceRequest), facility);
     }
@@ -459,9 +457,6 @@ public class ServiceRequestService {
         facilityRepository.save(facility);
         
         ServiceRequest savedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("AS 접수가 생성되었습니다. ID: {}, 접수번호: {}, 서비스 요청 상태: {}, 시설물 상태: {}", 
-                 savedServiceRequest.getServiceRequestId(), savedServiceRequest.getRequestNumber(), 
-                 "002010_0001", "002003_0002");
         
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(savedServiceRequest);
         return enrichDtoWithCompanyInfo(resultDto, facility);
@@ -537,7 +532,6 @@ public class ServiceRequestService {
         }
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("AS 접수가 수정되었습니다. ID: {}", updatedServiceRequest.getServiceRequestId());
         
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
         return enrichDtoWithCompanyInfo(resultDto, updatedServiceRequest.getFacility());
@@ -552,7 +546,6 @@ public class ServiceRequestService {
                 .orElseThrow(() -> new EntityNotFoundException("AS 접수를 찾을 수 없습니다: " + id));
         
         serviceRequestRepository.delete(serviceRequest);
-        log.info("AS 접수가 삭제되었습니다. ID: {}", id);
     }
     
     /**
@@ -584,8 +577,6 @@ public class ServiceRequestService {
         facilityRepository.save(facility);
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("AS 접수가 접수 완료되었습니다. ID: {}, 담당자: {}, 예상 완료일: {}, 서비스 요청 상태: {}, 시설물 상태: {}", 
-                 id, manager.getUserName(), dto.getExpectedCompletionDate(), "002010_0002", "002003_0002");
         
         // 시설물 이동 트랜잭션 생성 (요청자 회사 -> AS센터)
         try {
@@ -608,8 +599,6 @@ public class ServiceRequestService {
                         
                         // 트랜잭션 생성
                         facilityTransactionService.processService(transactionRequest);
-                        log.info("시설물 AS 이동 트랜잭션이 생성되었습니다. 시설물 ID: {}, AS 요청 ID: {}, 출발: {}, 도착: {}", 
-                                facility.getFacilityId(), serviceRequest.getServiceRequestId(), fromCompanyId, toCompanyId);
                     } else {
                         log.warn("관리자의 소속 회사 정보가 없어 AS 이동 트랜잭션을 생성할 수 없습니다. 관리자 ID: {}", manager.getId());
                     }
@@ -649,8 +638,6 @@ public class ServiceRequestService {
         facilityRepository.save(facility);
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("AS 접수가 접수 완료되었습니다. ID: {}, 서비스 요청 상태: {}, 시설물 상태: {}", 
-                 id, "002010_0002", "002003_0002");
         
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
         return enrichDtoWithCompanyInfo(resultDto, facility);
@@ -688,9 +675,7 @@ public class ServiceRequestService {
         if (serviceRequest.getOriginalLocationCompanyId() != null) {
             Company originalCompany = companyRepository.findById(serviceRequest.getOriginalLocationCompanyId())
                 .orElseThrow(() -> new EntityNotFoundException("원래 위치 회사를 찾을 수 없습니다: " + serviceRequest.getOriginalLocationCompanyId()));
-            
-            log.info("시설물 원래 위치 회사로 복구합니다. 시설물 ID: {}, 회사 ID: {}, 회사명: {}", 
-                facility.getFacilityId(), originalCompany.getId(), originalCompany.getStoreName());
+
             
             facility.setLocationCompany(originalCompany);
         } else {
@@ -700,8 +685,7 @@ public class ServiceRequestService {
         facilityRepository.save(facility);
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("AS가 완료 처리되었습니다. ID: {}, 담당자: {}, 수리비용: {}, 서비스 요청 상태: {}, 시설물 상태: {}", 
-                 id, manager.getUserName(), dto.getCost(), "002010_0003", "002003_0001");
+
         
         // 시설물 복귀 트랜잭션 생성 (AS센터 -> 요청자 회사)
         try {
@@ -755,9 +739,7 @@ public class ServiceRequestService {
                         
                         // 트랜잭션 생성
                         facilityTransactionService.processService(transactionRequest);
-                        log.info("시설물 AS 복귀 트랜잭션이 생성되었습니다. 시설물 ID: {}, AS 요청 ID: {}, 출발: {}, 도착: {}, 관련 트랜잭션: {}", 
-                                facility.getFacilityId(), serviceRequest.getServiceRequestId(), 
-                                fromCompanyId, toCompanyId, relatedTransactionId);
+
                     } else {
                         log.warn("원래 위치 회사 정보를 찾을 수 없어 AS 복귀 트랜잭션을 생성할 수 없습니다. 시설물 ID: {}", facility.getFacilityId());
                     }
@@ -798,8 +780,6 @@ public class ServiceRequestService {
         facilityRepository.save(facility);
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
-        log.info("AS가 완료 처리되었습니다. ID: {}, 서비스 요청 상태: {}, 시설물 상태: {}", 
-                 id, "002010_0003", "002003_0001");
         
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
         return enrichDtoWithCompanyInfo(resultDto, facility);

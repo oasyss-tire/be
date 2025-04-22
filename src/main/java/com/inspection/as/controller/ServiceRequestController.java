@@ -167,7 +167,6 @@ public class ServiceRequestController {
         String currentUserId = authentication.getName();
         
         ServiceRequestDTO createdServiceRequest = serviceRequestService.createServiceRequest(dto, currentUserId);
-        log.info("AS 접수가 생성되었습니다. ID: {}", createdServiceRequest.getServiceRequestId());
         return ResponseEntity.status(HttpStatus.CREATED).body(createdServiceRequest);
     }
     
@@ -179,7 +178,6 @@ public class ServiceRequestController {
             @PathVariable Long id,
             @Valid @RequestBody UpdateServiceRequestDTO dto) {
         ServiceRequestDTO updatedServiceRequest = serviceRequestService.updateServiceRequest(id, dto);
-        log.info("AS 접수가 수정되었습니다. ID: {}", updatedServiceRequest.getServiceRequestId());
         return ResponseEntity.ok(updatedServiceRequest);
     }
     
@@ -189,7 +187,6 @@ public class ServiceRequestController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteServiceRequest(@PathVariable Long id) {
         serviceRequestService.deleteServiceRequest(id);
-        log.info("AS 접수가 삭제되었습니다. ID: {}", id);
         return ResponseEntity.noContent().build();
     }
     
@@ -205,7 +202,6 @@ public class ServiceRequestController {
         String currentUserId = authentication.getName();
         
         ServiceRequestDTO serviceRequest = serviceRequestService.markAsReceived(id, currentUserId, dto);
-        log.info("AS 접수가 접수 완료되었습니다. ID: {}", id);
         return ResponseEntity.ok(serviceRequest);
     }
     
@@ -221,7 +217,6 @@ public class ServiceRequestController {
         String currentUserId = authentication.getName();
         
         ServiceRequestDTO serviceRequest = serviceRequestService.markAsCompleted(id, currentUserId, dto);
-        log.info("AS가 완료 처리되었습니다. ID: {}", id);
         return ResponseEntity.ok(serviceRequest);
     }
 } 
