@@ -65,7 +65,13 @@ public class Contract {
     @OneToMany(mappedBy = "contract", cascade = CascadeType.ALL)
     private List<ContractParticipant> participants = new ArrayList<>();  // 서명 참여자 목록
     
-    private String createdBy;               // 계약 작성자 (담당자)
+    private String createdBy;               // 계약 작성자 (담당자) - 이름만 저장 (기존 호환성 유지)
+    
+    // User 엔티티와 연결 - 계약 생성자 정보
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by_user_id")
+    private User createdByUser;            // 계약 작성 관리자 (User 엔티티 연결)
+    
     private String description;             // 계약 설명/비고
     private String cancelReason;            // 계약 취소/거절 사유
     private boolean active;  // isActive -> active로 변경

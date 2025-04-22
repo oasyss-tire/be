@@ -35,6 +35,7 @@ import com.inspection.repository.ParticipantResignHistoryRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
+import com.inspection.entity.User;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -104,6 +105,21 @@ public class ContractService {
         contract.setCompany(company);
         contract.setCreatedBy(request.getCreatedBy());
         contract.setDepartment(request.getDepartment());
+        
+        // 사용자 엔티티 연결 (userId가 제공된 경우)
+        if (request.getUserId() != null) {
+            User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new RuntimeException("User not found: " + request.getUserId()));
+            contract.setCreatedByUser(user);
+            // 혹시 createdBy가 없는 경우 사용자 이름 설정
+            if (contract.getCreatedBy() == null || contract.getCreatedBy().trim().isEmpty()) {
+                contract.setCreatedBy(user.getUserName());
+            }
+            log.info("Contract creator set: userId={}, username={}", user.getId(), user.getUserName());
+        } else {
+            log.warn("Contract created without user association: title={}, createdBy={}", 
+                request.getTitle(), request.getCreatedBy());
+        }
         
         // 하자보증증권 정보 설정
         contract.setInsuranceStartDate(request.getInsuranceStartDate());
@@ -655,9 +671,12 @@ public class ContractService {
             throw new IllegalStateException("승인 대기 상태의 참여자만 승인할 수 있습니다.");
         }
         
+        // 승인 시간을 현재 시간으로 통일하여 설정
+        LocalDateTime approvalTime = LocalDateTime.now();
+        
         // 승인 처리
         participant.setApproved(true);
-        participant.setApprovedAt(LocalDateTime.now());
+        participant.setApprovedAt(approvalTime);
         participant.setApprovalComment(comment);
         
         // 상태를 '승인 완료'로 변경
@@ -669,7 +688,7 @@ public class ContractService {
         participantRepository.save(participant);
         
         // 모든 참여자가 승인했는지 확인하고 계약 상태 업데이트
-        checkAllParticipantsApproved(contract);
+        checkAllParticipantsApproved(contract, approvalTime);
         
         return participant;
     }
@@ -745,8 +764,9 @@ public class ContractService {
     
     /**
      * 모든 참여자가 승인했는지 확인하고 계약 상태 업데이트
+     * 승인 시간을 파라미터로 받아 모든 시간값을 통일합니다.
      */
-    private void checkAllParticipantsApproved(Contract contract) {
+    private void checkAllParticipantsApproved(Contract contract, LocalDateTime approvalTime) {
         boolean allApproved = contract.getParticipants().stream()
             .allMatch(p -> p.isApproved() || 
                 (p.getStatusCode() != null && PARTICIPANT_STATUS_APPROVED.equals(p.getStatusCode().getCodeId())));
@@ -755,12 +775,14 @@ public class ContractService {
             // 모든 참여자가 승인한 경우 계약 완료 상태로 변경
             updateContractStatus(contract.getId(), CONTRACT_STATUS_COMPLETED, "System");
             
-            // 계약 완료 시간 기록
-            contract.setApprovedAt(LocalDateTime.now());
+            // 계약 완료 시간 및 승인 시간 기록 (동일한 시간으로 설정)
+            contract.setCompletedAt(approvalTime);  // 완료 시간을 승인 시간과 동일하게 설정
+            contract.setApprovedAt(approvalTime);   // 승인 시간 설정
             contract.setApprovedBy("시스템 자동 승인 (모든 참여자 승인 완료)");
             
             contractRepository.save(contract);
-            log.info("모든 참여자 승인 완료: 계약ID={}, 상태='계약완료'", contract.getId());
+            log.info("모든 참여자 승인 완료: 계약ID={}, 상태='계약완료', 승인/완료 시간={}", 
+                contract.getId(), approvalTime);
         }
     }
     

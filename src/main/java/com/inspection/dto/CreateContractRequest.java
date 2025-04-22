@@ -21,7 +21,8 @@ public class CreateContractRequest {
     private List<Long> templateIds;         // 선택된 템플릿 ID 목록
     
     private Long companyId;                 // 계약 회사 ID
-    private String createdBy;               // 계약 작성자
+    private String createdBy;               // 계약 작성자 (이름) - 기존 호환성 유지
+    private Long userId;                    // 계약 작성자 사용자 ID (User 엔티티 연결용)
     private String department;              // 담당 부서
     private List<CreateParticipantRequest> participants;  // 서명 참여자 목록
     

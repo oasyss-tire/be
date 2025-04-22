@@ -25,6 +25,7 @@ import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.entity.ParticipantResignHistory;
 import com.inspection.entity.ParticipantDocument;
+import com.inspection.entity.User;
 import com.inspection.service.ContractService;
 import com.inspection.service.ParticipantDocumentService;
 import com.inspection.dto.PhoneVerificationRequest;
@@ -33,6 +34,7 @@ import com.inspection.util.EncryptionUtil;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractRepository;
+import com.inspection.repository.UserRepository;
 import com.inspection.dto.TemplateSignStatusDTO;
 import com.inspection.exception.ResourceNotFoundException;
 import com.inspection.service.ParticipantTokenService;
@@ -43,6 +45,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.Authentication;
 
 
 @Slf4j
@@ -59,6 +64,7 @@ public class ContractController {
     private final SMSService smsService;
     private final EncryptionUtil encryptionUtil;
     private final ParticipantDocumentService participantDocumentService;
+    private final UserRepository userRepository;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
@@ -68,9 +74,32 @@ public class ContractController {
      * 계약 정보, 참여자 정보, 템플릿 목록, 필요 문서 코드 목록을 받아 계약을 생성합니다.
      */
     @PostMapping
-    public ResponseEntity<ContractDTO> createContract(@RequestBody CreateContractRequest request) {
+    public ResponseEntity<ContractDTO> createContract(
+        @RequestBody CreateContractRequest request,
+        @AuthenticationPrincipal UserDetails userDetails) {
+        
         log.info("Contract creation request received: {}", request.getTitle());
+        
         try {
+            // 현재 로그인한 사용자 정보 설정
+            if (userDetails != null) {
+                String userId = userDetails.getUsername();
+                User user = userRepository.findByUserId(userId)
+                    .orElse(null);
+                
+                if (user != null) {
+                    request.setUserId(user.getId());
+                    
+                    // createdBy가 설정되지 않은 경우에만 자동 설정
+                    if (request.getCreatedBy() == null || request.getCreatedBy().trim().isEmpty()) {
+                        request.setCreatedBy(userId);
+                    }
+                    
+                    log.info("로그인 사용자 정보로 계약 생성 요청 보강: userId={}, username={}",
+                        user.getId(), userId);
+                }
+            }
+            
             Contract contract = contractService.createContract(request);
             return ResponseEntity.ok(new ContractDTO(contract, encryptionUtil));
         } catch (Exception e) {
@@ -426,10 +455,29 @@ public class ContractController {
     public ResponseEntity<?> rejectByParticipant(
         @PathVariable Long contractId,
         @PathVariable Long participantId,
-        @RequestParam String reason
+        @RequestParam String reason,
+        Authentication authentication
     ) {
         try {
-            log.info("Participant rejection request: contractId={}, participantId={}", contractId, participantId);
+            // 인증 정보 로깅
+            if (authentication != null) {
+                Object principal = authentication.getPrincipal();
+                log.info("Authentication available - Principal type: {}", principal.getClass().getName());
+                
+                if (principal instanceof UserDetails) {
+                    UserDetails userDetails = (UserDetails) principal;
+                    log.info("User authenticated: {}", userDetails.getUsername());
+                } else if (principal instanceof String) {
+                    log.info("Username: {}", principal);
+                } else {
+                    log.info("Principal type not recognized: {}", principal);
+                }
+            } else {
+                log.info("No authentication information available");
+            }
+            
+            log.info("Participant rejection request: contractId={}, participantId={}, reason={}", 
+                contractId, participantId, reason);
                 
             ContractParticipant participant = contractService.rejectByParticipant(contractId, participantId, reason);
             return ResponseEntity.ok().build();

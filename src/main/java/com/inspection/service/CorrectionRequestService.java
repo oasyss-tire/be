@@ -74,74 +74,83 @@ public class CorrectionRequestService {
             Code resignInProgressStatus = codeRepository.findById(PARTICIPANT_STATUS_RESIGN_IN_PROGRESS)
                 .orElseThrow(() -> new RuntimeException("재서명 진행중 상태 코드를 찾을 수 없습니다"));
             participant.setStatusCode(resignInProgressStatus);
+            
+            // 재서명 요청 시간을 나중에 재사용하기 위해 변수로 선언
+            LocalDateTime now = LocalDateTime.now();
+            
+            // 참여자 엔티티에 재서명 요청 시간과 이유 저장
+            participant.setResignRequestedAt(now);
+            participant.setResignRequestReason(request.getCorrectionComment());
+            
             participantRepository.save(participant);
-            log.info("참여자 상태를 재서명 진행중으로 변경 - 참여자 ID: {}", participantId);
+            log.info("참여자 상태를 재서명 진행중으로 변경 - 참여자 ID: {}, 시간: {}, 이유: {}", 
+                participantId, now, request.getCorrectionComment());
+                
+            // 계약 조회
+            Contract contract = participant.getContract();
+            
+            // 필드별 수정 사유 맵 생성
+            Map<Long, String> fieldCommentMap = request.getFieldCorrections() != null ? 
+                    request.getFieldCorrections().stream()
+                            .collect(Collectors.toMap(CorrectionRequestDTO.FieldCorrectionDTO::getFieldId, 
+                                                    CorrectionRequestDTO.FieldCorrectionDTO::getComment)) : 
+                    Map.of();
+            
+            // 요청된 필드 ID로 필드 목록 조회
+            List<ParticipantPdfField> fields = participantPdfFieldRepository.findAllById(request.getFieldIds());
+            
+            if (fields.isEmpty()) {
+                throw new RuntimeException("재서명 요청할 필드가 없습니다.");
+            }
+            
+            // 필드별 재서명 요청 상태 설정
+            fields.forEach(field -> {
+                field.setNeedsCorrection(true);
+                field.setCorrectionRequestedAt(now); // 위에서 정의한 시간 사용
+                
+                // 필드별 수정 사유 설정
+                String comment = fieldCommentMap.containsKey(field.getId()) ? 
+                        fieldCommentMap.get(field.getId()) : request.getCorrectionComment();
+                field.setCorrectionComment(comment);
+            });
+            
+            // 변경사항 저장
+            List<ParticipantPdfField> updatedFields = participantPdfFieldRepository.saveAll(fields);
+            log.info("재서명 요청 필드 업데이트 완료 - 필드 수: {}", updatedFields.size());
+            
+            // ParticipantTemplateMapping 업데이트
+            // 필드들이 속한 모든 PDF에 대한 템플릿 매핑을 찾아 재서명 필요 상태로 설정
+            Set<String> pdfIds = fields.stream()
+                    .map(ParticipantPdfField::getPdfId)
+                    .collect(Collectors.toSet());
+            
+            List<ParticipantTemplateMapping> mappings = participant.getTemplateMappings();
+            for (ParticipantTemplateMapping mapping : mappings) {
+                if (pdfIds.contains(mapping.getPdfId())) {
+                    mapping.setNeedsResign(true);
+                    mapping.setResignRequestedAt(now); // 위에서 정의한 시간 사용
+                    log.info("템플릿 매핑 재서명 상태 업데이트 - PDF ID: {}", mapping.getPdfId());
+                }
+            }
+            
+            // 이메일 발송
+            if (request.isSendEmail() && participant.getEmail() != null && !participant.getEmail().isEmpty()) {
+                try {
+                    sendCorrectionRequestEmail(participant, fields);
+                    log.info("재서명 요청 이메일 발송 완료 - 참여자: {}", participant.getName());
+                } catch (Exception e) {
+                    log.error("재서명 요청 이메일 발송 실패: {}", e.getMessage(), e);
+                }
+            }
+            
+            // 응답 생성
+            return createCorrectionStatusDTO(participant, fields);
+            
         } catch (Exception e) {
             log.error("참여자 상태 변경 중 오류 발생: {}", e.getMessage(), e);
             // 상태 변경 실패는 프로세스를 중단하지 않음
+            throw new RuntimeException("재서명 요청 처리 중 오류가 발생했습니다: " + e.getMessage());
         }
-        
-        // 계약 조회
-        Contract contract = participant.getContract();
-        
-        // 필드별 수정 사유 맵 생성
-        Map<Long, String> fieldCommentMap = request.getFieldCorrections() != null ? 
-                request.getFieldCorrections().stream()
-                        .collect(Collectors.toMap(CorrectionRequestDTO.FieldCorrectionDTO::getFieldId, 
-                                                 CorrectionRequestDTO.FieldCorrectionDTO::getComment)) : 
-                Map.of();
-        
-        // 요청된 필드 ID로 필드 목록 조회
-        List<ParticipantPdfField> fields = participantPdfFieldRepository.findAllById(request.getFieldIds());
-        
-        if (fields.isEmpty()) {
-            throw new RuntimeException("재서명 요청할 필드가 없습니다.");
-        }
-        
-        LocalDateTime now = LocalDateTime.now();
-        
-        // 필드별 재서명 요청 상태 설정
-        fields.forEach(field -> {
-            field.setNeedsCorrection(true);
-            field.setCorrectionRequestedAt(now);
-            
-            // 필드별 수정 사유 설정
-            String comment = fieldCommentMap.containsKey(field.getId()) ? 
-                    fieldCommentMap.get(field.getId()) : request.getCorrectionComment();
-            field.setCorrectionComment(comment);
-        });
-        
-        // 변경사항 저장
-        List<ParticipantPdfField> updatedFields = participantPdfFieldRepository.saveAll(fields);
-        log.info("재서명 요청 필드 업데이트 완료 - 필드 수: {}", updatedFields.size());
-        
-        // ParticipantTemplateMapping 업데이트
-        // 필드들이 속한 모든 PDF에 대한 템플릿 매핑을 찾아 재서명 필요 상태로 설정
-        Set<String> pdfIds = fields.stream()
-                .map(ParticipantPdfField::getPdfId)
-                .collect(Collectors.toSet());
-        
-        List<ParticipantTemplateMapping> mappings = participant.getTemplateMappings();
-        for (ParticipantTemplateMapping mapping : mappings) {
-            if (pdfIds.contains(mapping.getPdfId())) {
-                mapping.setNeedsResign(true);
-                mapping.setResignRequestedAt(now);
-                log.info("템플릿 매핑 재서명 상태 업데이트 - PDF ID: {}", mapping.getPdfId());
-            }
-        }
-        
-        // 이메일 발송
-        if (request.isSendEmail() && participant.getEmail() != null && !participant.getEmail().isEmpty()) {
-            try {
-                sendCorrectionRequestEmail(participant, fields);
-                log.info("재서명 요청 이메일 발송 완료 - 참여자: {}", participant.getName());
-            } catch (Exception e) {
-                log.error("재서명 요청 이메일 발송 실패: {}", e.getMessage(), e);
-            }
-        }
-        
-        // 응답 생성
-        return createCorrectionStatusDTO(participant, fields);
     }
     
     /**
