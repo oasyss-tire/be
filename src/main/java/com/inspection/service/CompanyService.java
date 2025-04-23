@@ -2,6 +2,9 @@ package com.inspection.service;
 
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Map;
+import java.time.LocalDate;
+import java.util.HashMap;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,16 +15,23 @@ import com.inspection.dto.CreateCompanyRequest;
 import com.inspection.dto.UserResponseDTO;
 import com.inspection.entity.Company;
 import com.inspection.entity.CompanyImage;
+import com.inspection.entity.CompanyTrusteeHistory;
 import com.inspection.entity.User;
 import com.inspection.repository.CompanyRepository;
+import com.inspection.repository.CompanyTrusteeHistoryRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.util.StringUtils;
+
+import com.inspection.dto.TrusteeChangeRequest;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +42,10 @@ public class CompanyService {
     private final CompanyImageStorageService companyImageStorageService;
     private final UserRepository userRepository;
     private final EncryptionUtil encryptionUtil;
+    private final CompanyTrusteeHistoryRepository trusteeHistoryRepository;
+    private final ObjectMapper objectMapper;
+    private final ContractService contractService;
+    private final TrusteeService trusteeService;
     
     /**
      * 새로운 회사를 생성합니다.
@@ -54,10 +68,24 @@ public class CompanyService {
         
         Company savedCompany = companyRepository.save(company);
         
-        log.info("회사 생성 완료: {}, 매장번호: {}, 등록자: {}", 
+        // CompanyTrusteeHistory 생성 및 저장
+        CompanyTrusteeHistory trusteeHistory = new CompanyTrusteeHistory();
+        trusteeHistory.setCompany(savedCompany);
+        trusteeHistory.setActive(true);
+        trusteeHistory.setReason("신규 등록");
+        trusteeHistory.setModifiedBy(savedCompany.getCreatedBy());
+        
+        // Company 정보를 CompanyTrusteeHistory에 복사
+        trusteeHistory.copyFromCompany(savedCompany);
+        
+        // 수탁자 이력 저장
+        trusteeHistoryRepository.save(trusteeHistory);
+        
+        log.info("회사 생성 완료: {}, 매장번호: {}, 등록자: {}, 수탁자 이력 생성됨", 
                 savedCompany.getStoreName(), 
                 savedCompany.getStoreNumber(),
                 savedCompany.getCreatedBy());
+                
         return CompanyDTO.fromEntity(savedCompany);
     }
     
@@ -560,5 +588,25 @@ public class CompanyService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
             }
         }
+    }
+
+    /**
+     * 수탁자 정보를 변경하고 이력을 관리합니다.
+     * @deprecated 대신 {@link TrusteeService#changeTrustee}를 사용하세요
+     */
+    @Deprecated
+    @Transactional
+    public CompanyDTO changeTrustee(Long companyId, TrusteeChangeRequest request) {
+        return trusteeService.changeTrustee(companyId, request);
+    }
+    
+    /**
+     * 기존 수탁자와 재계약을 진행합니다.
+     * @deprecated 대신 {@link TrusteeService#renewContract}를 사용하세요
+     */
+    @Deprecated
+    @Transactional
+    public Map<String, Object> renewContract(Long companyId, Map<String, Object> request, String userId) {
+        return trusteeService.renewContract(companyId, request, userId);
     }
 } 

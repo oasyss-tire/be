@@ -28,10 +28,10 @@ import lombok.Setter;
 public class Code {
     
     @Id
-    private String codeId;  // 코드 ID (예: '100', 'DRAFT')
+    private String codeId;  // 코드 ID (예: '001001_0001')
     
     @Column(nullable = false)
-    private String codeName;  // 코드 이름 (예: '위수탁계약', '임시저장')
+    private String codeName;  // 코드 이름 (예: '신규 계약', '재계약')
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "group_id", nullable = false)

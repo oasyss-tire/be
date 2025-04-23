@@ -15,6 +15,7 @@ import com.inspection.dto.CreateParticipantRequest;
 import com.inspection.dto.ParticipantDetailDTO;
 import com.inspection.entity.Code;
 import com.inspection.entity.Company;
+import com.inspection.entity.CompanyTrusteeHistory;
 import com.inspection.entity.Contract;
 import com.inspection.entity.ContractParticipant;
 import com.inspection.entity.ContractPdfField;
@@ -23,19 +24,21 @@ import com.inspection.entity.ContractTemplateMapping;
 import com.inspection.entity.ParticipantPdfField;
 import com.inspection.entity.ParticipantResignHistory;
 import com.inspection.entity.ParticipantTemplateMapping;
+import com.inspection.entity.User;
 import com.inspection.enums.NotificationType;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
+import com.inspection.repository.CompanyTrusteeHistoryRepository;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractRepository;
 import com.inspection.repository.ContractTemplateRepository;
+import com.inspection.repository.ParticipantDocumentRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.repository.ParticipantResignHistoryRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
-import com.inspection.entity.User;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +65,8 @@ public class ContractService {
     private final ParticipantPdfFieldRepository participantPdfFieldRepository;
     private final ParticipantDocumentService participantDocumentService;
     private final UserRepository userRepository;
+    private final CompanyTrusteeHistoryRepository trusteeHistoryRepository;
+    private final ParticipantDocumentRepository participantDocumentRepository;
     
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
@@ -91,9 +96,30 @@ public class ContractService {
         
         // 1. 회사 조회
         Company company = null;
+        CompanyTrusteeHistory trusteeHistory = null;
+        
         if (request.getCompanyId() != null) {
             company = companyRepository.findById(request.getCompanyId())
                 .orElseThrow(() -> new RuntimeException("Company not found: " + request.getCompanyId()));
+        }
+        
+        // 수탁자 이력 조회 (제공된 경우)
+        if (request.getTrusteeHistoryId() != null) {
+            trusteeHistory = trusteeHistoryRepository.findById(request.getTrusteeHistoryId())
+                .orElseThrow(() -> new RuntimeException("Trustee history not found: " + request.getTrusteeHistoryId()));
+                
+            // 수탁자 이력의 회사가 요청된 회사와 일치하는지 확인
+            if (company != null && !trusteeHistory.getCompany().getId().equals(company.getId())) {
+                throw new RuntimeException("Trustee history does not belong to the specified company");
+            }
+            
+            // 회사가 지정되지 않았다면 수탁자 이력에서 회사 정보 설정
+            if (company == null) {
+                company = trusteeHistory.getCompany();
+            }
+            
+            log.info("Contract associated with trustee history: historyId={}, trustee={}, isActive={}", 
+                trusteeHistory.getId(), trusteeHistory.getTrustee(), trusteeHistory.isActive());
         }
             
         // 2. Contract 엔티티 생성
@@ -103,6 +129,7 @@ public class ContractService {
         contract.setStartDate(request.getStartDate());
         contract.setExpiryDate(request.getExpiryDate());
         contract.setCompany(company);
+        contract.setTrusteeHistory(trusteeHistory); // 수탁자 이력 설정
         contract.setCreatedBy(request.getCreatedBy());
         contract.setDepartment(request.getDepartment());
         
@@ -135,6 +162,20 @@ public class ContractService {
         Code tempStatus = codeRepository.findById(CONTRACT_STATUS_TEMP)
             .orElseThrow(() -> new RuntimeException("Contract status code not found: " + CONTRACT_STATUS_TEMP));
         contract.setStatusCode(tempStatus);
+        
+        // 계약 구분 코드 설정 (제공된 경우)
+        if (request.getContractTypeCodeId() != null) {
+            try {
+                // contractTypeCodeId가 이미 String이므로 그대로 사용
+                Code contractTypeCode = codeRepository.findById(request.getContractTypeCodeId())
+                    .orElseThrow(() -> new RuntimeException("Contract type code not found: " + request.getContractTypeCodeId()));
+                contract.setContractTypeCode(contractTypeCode);
+                log.info("Contract type code set: {}", contractTypeCode.getCodeName());
+            } catch (Exception e) {
+                log.error("Error setting contract type code: {}", e.getMessage());
+                // 계약 구분 코드 설정 실패는 계약 생성을 실패시키지 않음
+            }
+        }
         
         // 계약번호 생성 및 설정
         String prefix = String.format("CT-%d-%02d%02d-", 
@@ -190,6 +231,35 @@ public class ContractService {
         
         // 임시 저장 - 참여자에 계약 참조 설정을 위해
         Contract savedContract = contractRepository.save(contract);
+        
+        // 6. 계약과 활성화된 수탁자 이력 연결
+        // (trusteeHistory가 이미 설정된 경우에는 활성 이력 연결 로직 건너뛰기)
+        if (company != null && trusteeHistory == null) {
+            try {
+                CompanyTrusteeHistory activeHistory = trusteeHistoryRepository
+                    .findByCompanyAndIsActiveTrue(company)
+                    .orElse(null);
+                
+                if (activeHistory != null) {
+                    activeHistory.setContract(savedContract);
+                    trusteeHistoryRepository.save(activeHistory);
+                    log.info("CompanyTrusteeHistory linked to Contract: historyId={}, contractId={}, trustee={}", 
+                            activeHistory.getId(), savedContract.getId(), activeHistory.getTrustee());
+                } else {
+                    log.warn("No active trustee history found for company: companyId={}, companyName={}", 
+                            company.getId(), company.getStoreName());
+                }
+            } catch (Exception e) {
+                log.error("Error linking CompanyTrusteeHistory to Contract: {}", e.getMessage(), e);
+                // 연결 실패는 계약 생성을 실패시키지 않음 (경고만 로깅)
+            }
+        } else if (trusteeHistory != null) {
+            // 사용자가 선택한 수탁자 이력이 있으면, 해당 이력에 계약 연결
+            trusteeHistory.setContract(savedContract);
+            trusteeHistoryRepository.save(trusteeHistory);
+            log.info("User-selected trustee history linked to contract: historyId={}, contractId={}, trustee={}",
+                    trusteeHistory.getId(), savedContract.getId(), trusteeHistory.getTrustee());
+        }
         
         // 각 참여자별로 각 템플릿에 대한 PDF 생성
         for (ContractParticipant participant : participants) {
@@ -262,12 +332,12 @@ public class ContractService {
             }
         }
         
-        // 6. 최종 저장
+        // 7. 최종 저장
         Contract finalContract = contractRepository.save(contract);
         log.info("Contract created successfully: {}, contractNumber: {}", 
             finalContract.getId(), finalContract.getContractNumber());
         
-        // 7. 필요한 문서 설정 (요구사항에 명시된 문서 코드가 있는 경우에만)
+        // 8. 필요한 문서 설정 (요구사항에 명시된 문서 코드가 있는 경우에만)
         if (request.getDocumentCodeIds() != null && !request.getDocumentCodeIds().isEmpty()) {
             try {
                 participantDocumentService.setupContractDocuments(finalContract.getId(), request.getDocumentCodeIds());
@@ -1130,5 +1200,27 @@ public class ContractService {
         
         // 계약의 모든 재서명 이력 조회
         return resignHistoryRepository.findByContractIdOrderByRequestedAtDesc(contractId);
+    }
+
+    /**
+     * 특정 계약의 문서 코드 ID 목록을 조회합니다.
+     * 재계약 시 이전 계약의 문서 코드를 새 계약에 적용하기 위해 사용됩니다.
+     * 
+     * @param contractId 계약 ID
+     * @return 문서 코드 ID 목록
+     */
+    @Transactional(readOnly = true)
+    public List<String> getContractDocumentCodeIds(Long contractId) {
+        try {
+            // 계약의 문서 요구사항 조회 (실제 구현은 해당 레포지토리와 엔티티에 따라 달라질 수 있음)
+            // 여기서는 ParticipantDocument 엔티티에서 계약 ID로 필터링하여 문서 코드만 추출하는 방식으로 구현
+            return participantDocumentRepository.findByContractId(contractId).stream()
+                .map(doc -> doc.getDocumentCode().getCodeId())
+                .distinct()  // 중복 제거
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("계약의 문서 코드 ID 조회 중 오류 발생: contractId={}, error={}", contractId, e.getMessage());
+            return new ArrayList<>(); // 오류 발생 시 빈 목록 반환
+        }
     }
 } 

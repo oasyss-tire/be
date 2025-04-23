@@ -1,6 +1,5 @@
 package com.inspection.dto;
 
-import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -24,8 +23,11 @@ public class CreateContractRequest {
     private String createdBy;               // 계약 작성자 (이름) - 기존 호환성 유지
     private Long userId;                    // 계약 작성자 사용자 ID (User 엔티티 연결용)
     private String department;              // 담당 부서
+    private String contractTypeCodeId;        // 계약 구분 코드 ID (신규/재계약/1회차/2회차 등)
     private List<CreateParticipantRequest> participants;  // 서명 참여자 목록
     
     private List<String> documentCodeIds;   // 참여자가 업로드해야 할 문서 코드 목록
+    
+    private Long trusteeHistoryId;     // 수탁자 이력 ID (추가)
 }
 

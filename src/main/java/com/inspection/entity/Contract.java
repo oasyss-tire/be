@@ -1,7 +1,7 @@
 package com.inspection.entity;
 
-import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,6 +33,11 @@ public class Contract {
     @JoinColumn(name = "status_code_id")
     private Code statusCode;               // 계약 상태 코드 (코드 관리 시스템 연결)
     
+    // 계약 구분 코드와 연결 (신규/재계약/1회차/2회차 등)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "contract_type_code_id")
+    private Code contractTypeCode;         // 계약 구분 코드 (코드 관리 시스템 연결)
+    
     private Integer progressRate;           // 계약 진행률 (%)
     // private String contractType;         // 계약 구분 (추후 코드로 관리)
     
@@ -59,6 +64,11 @@ public class Contract {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = true)
     private Company company;                // 계약 회사
+    
+    // 수탁자 이력 연결 (추가)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "trustee_history_id", nullable = true)
+    private CompanyTrusteeHistory trusteeHistory; // 계약 관련 수탁자 이력
     
     private String contractPdfId;           // 실제 계약서 PDF ID (대표 PDF, 첫 번째 템플릿의 PDF)
     
@@ -152,5 +162,73 @@ public class Contract {
     public void reject(String rejectionReason) {
         this.rejectionReason = rejectionReason;
         // 반려 시 상태 변경 등의 추가 로직 필요
+    }
+    
+    // 수탁자 정보 관련 편의 메서드 (추가)
+    
+    /**
+     * 계약의 수탁자 이름을 반환합니다.
+     * 수탁자 이력에서 우선 조회하고, 없으면 회사 정보에서 조회합니다.
+     */
+    public String getTrusteeName() {
+        if (this.trusteeHistory != null) {
+            return this.trusteeHistory.getTrustee();
+        }
+        return this.company != null ? this.company.getTrustee() : null;
+    }
+    
+    /**
+     * 계약의 수탁자 코드를 반환합니다.
+     * 수탁자 이력에서 우선 조회하고, 없으면 회사 정보에서 조회합니다.
+     */
+    public String getTrusteeCode() {
+        if (this.trusteeHistory != null) {
+            return this.trusteeHistory.getTrusteeCode();
+        }
+        return this.company != null ? this.company.getTrusteeCode() : null;
+    }
+    
+    /**
+     * 계약의 사업자 번호를 반환합니다.
+     * 수탁자 이력에서 우선 조회하고, 없으면 회사 정보에서 조회합니다.
+     */
+    public String getBusinessNumber() {
+        if (this.trusteeHistory != null) {
+            return this.trusteeHistory.getBusinessNumber();
+        }
+        return this.company != null ? this.company.getBusinessNumber() : null;
+    }
+    
+    /**
+     * 계약의 대표자 이름을 반환합니다.
+     * 수탁자 이력에서 우선 조회하고, 없으면 회사 정보에서 조회합니다.
+     */
+    public String getRepresentativeName() {
+        if (this.trusteeHistory != null) {
+            return this.trusteeHistory.getRepresentativeName();
+        }
+        return this.company != null ? this.company.getRepresentativeName() : null;
+    }
+    
+    /**
+     * 계약 시작일을 반환합니다.
+     * Contract의 startDate가 우선이고, 없으면 수탁자 이력에서 조회합니다.
+     */
+    public LocalDate getEffectiveStartDate() {
+        if (this.startDate != null) {
+            return this.startDate;
+        }
+        return this.trusteeHistory != null ? this.trusteeHistory.getStartDate() : null;
+    }
+    
+    /**
+     * 계약 종료일을 반환합니다.
+     * Contract의 expiryDate가 우선이고, 없으면 수탁자 이력에서 조회합니다.
+     */
+    public LocalDate getEffectiveEndDate() {
+        if (this.expiryDate != null) {
+            return this.expiryDate;
+        }
+        return this.trusteeHistory != null ? this.trusteeHistory.getEndDate() : null;
     }
 } 

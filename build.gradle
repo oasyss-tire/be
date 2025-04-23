@@ -20,8 +20,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-devtools'
     
     implementation 'mysql:mysql-connector-java:8.0.33'
-    compileOnly 'org.projectlombok:lombok'
-    annotationProcessor 'org.projectlombok:lombok'
+    compileOnly 'org.projectlombok:lombok:1.18.38'
+    annotationProcessor 'org.projectlombok:lombok:1.18.38'
     
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 

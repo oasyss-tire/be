@@ -53,6 +53,14 @@ public class ContractDTO {
     private String storeTelNumber;   // 매장 전화번호 (055-123-4567) 추가
     private LocalDate insuranceStartDate; // 하자보증증권 보험시작일 추가
     private LocalDate insuranceEndDate;   // 하자보증증권 보험종료일 추가
+    
+    // 수탁자 이력 정보 추가
+    private Long trusteeHistoryId;    // 수탁자 이력 ID
+    private String trusteeName;       // 수탁자 이름
+    private String trusteeCode;       // 수탁자 코드
+    private String representativeName; // 대표자 이름
+    private String businessNumber;    // 사업자 번호
+    
     private List<ParticipantDTO> participants;
 
     public ContractDTO(Contract contract, EncryptionUtil encryptionUtil) {
@@ -111,6 +119,21 @@ public class ContractDTO {
             // Company와 Contract에서 LocalDate 타입 그대로 사용
             this.insuranceStartDate = contract.getCompany().getInsuranceStartDate();
             this.insuranceEndDate = contract.getCompany().getInsuranceEndDate();
+        }
+        
+        // 수탁자 이력 정보 설정
+        if (contract.getTrusteeHistory() != null) {
+            this.trusteeHistoryId = contract.getTrusteeHistory().getId();
+            this.trusteeName = contract.getTrusteeHistory().getTrustee();
+            this.trusteeCode = contract.getTrusteeHistory().getTrusteeCode();
+            this.representativeName = contract.getTrusteeHistory().getRepresentativeName();
+            this.businessNumber = contract.getTrusteeHistory().getBusinessNumber();
+        } else {
+            // 수탁자 이력이 없는 경우 Contract의 편의 메서드 사용
+            this.trusteeName = contract.getTrusteeName();
+            this.trusteeCode = contract.getTrusteeCode();
+            this.representativeName = contract.getRepresentativeName();
+            this.businessNumber = contract.getBusinessNumber();
         }
         
         this.participants = contract.getParticipants().stream()
