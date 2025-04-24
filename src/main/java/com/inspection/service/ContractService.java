@@ -3,7 +3,9 @@ package com.inspection.service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -163,18 +165,27 @@ public class ContractService {
             .orElseThrow(() -> new RuntimeException("Contract status code not found: " + CONTRACT_STATUS_TEMP));
         contract.setStatusCode(tempStatus);
         
-        // 계약 구분 코드 설정 (제공된 경우)
-        if (request.getContractTypeCodeId() != null) {
-            try {
-                // contractTypeCodeId가 이미 String이므로 그대로 사용
-                Code contractTypeCode = codeRepository.findById(request.getContractTypeCodeId())
-                    .orElseThrow(() -> new RuntimeException("Contract type code not found: " + request.getContractTypeCodeId()));
-                contract.setContractTypeCode(contractTypeCode);
-                log.info("Contract type code set: {}", contractTypeCode.getCodeName());
-            } catch (Exception e) {
-                log.error("Error setting contract type code: {}", e.getMessage());
-                // 계약 구분 코드 설정 실패는 계약 생성을 실패시키지 않음
+        // 계약 구분 코드 설정
+        try {
+            String initialCodeId = request.getContractTypeCodeId();
+            
+            // 계약 구분 코드가 없는 경우 기본값으로 신규 계약(001001_0001) 코드 설정
+            String finalContractTypeCodeId = (initialCodeId == null || initialCodeId.isEmpty()) 
+                ? "001001_0001" // 신규 계약 코드
+                : initialCodeId;
+                
+            if (initialCodeId == null || initialCodeId.isEmpty()) {
+                log.info("계약 구분 코드가 지정되지 않아 신규 계약 코드로 설정: {}", finalContractTypeCodeId);
             }
+            
+            // 계약 구분 코드 설정
+            Code contractTypeCode = codeRepository.findById(finalContractTypeCodeId)
+                .orElseThrow(() -> new RuntimeException("Contract type code not found: " + finalContractTypeCodeId));
+            contract.setContractTypeCode(contractTypeCode);
+            log.info("계약 구분 코드 설정 완료: {}, {}", finalContractTypeCodeId, contractTypeCode.getCodeName());
+        } catch (Exception e) {
+            log.error("계약 구분 코드 설정 중 오류 발생: {}", e.getMessage());
+            // 계약 구분 코드 설정 실패는 계약 생성을 실패시키지 않음
         }
         
         // 계약번호 생성 및 설정
@@ -255,8 +266,23 @@ public class ContractService {
             }
         } else if (trusteeHistory != null) {
             // 사용자가 선택한 수탁자 이력이 있으면, 해당 이력에 계약 연결
-            trusteeHistory.setContract(savedContract);
-            trusteeHistoryRepository.save(trusteeHistory);
+            // 주의: 재계약 시에는 TrusteeService에서 이미 처리함
+            
+            // 계약 타입 코드를 확인하여 재계약이 아닌 경우에만 수탁자 이력에 계약 연결
+            // 재계약(001001_0002)인 경우에는 TrusteeService에서 처리
+            String contractTypeCodeId = request.getContractTypeCodeId();
+            boolean isRenewalContract = "001001_0002".equals(contractTypeCodeId);
+            
+            if (!isRenewalContract) {
+                trusteeHistory.setContract(savedContract);
+                trusteeHistoryRepository.save(trusteeHistory);
+                log.info("신규 계약 - 수탁자 이력에 계약 연결: historyId={}, contractId={}, trustee={}",
+                        trusteeHistory.getId(), savedContract.getId(), trusteeHistory.getTrustee());
+            } else {
+                log.info("재계약 - TrusteeService에서 처리되므로 수탁자 이력 계약 연결 생략: historyId={}, contractId={}",
+                        trusteeHistory.getId(), savedContract.getId());
+            }
+            
             log.info("User-selected trustee history linked to contract: historyId={}, contractId={}, trustee={}",
                     trusteeHistory.getId(), savedContract.getId(), trusteeHistory.getTrustee());
         }
@@ -1222,5 +1248,276 @@ public class ContractService {
             log.error("계약의 문서 코드 ID 조회 중 오류 발생: contractId={}, error={}", contractId, e.getMessage());
             return new ArrayList<>(); // 오류 발생 시 빈 목록 반환
         }
+    }
+
+    /**
+     * 수탁자 정보를 포함한 계약 목록을 조회합니다.
+     * 계약과 연결된 CompanyTrusteeHistory의 정보를 함께 반환합니다.
+     * 
+     * @param status 계약 상태 필터링 (all: 전체, active: 활성화, inactive: 만료됨)
+     * @return 계약 정보와 수탁자 정보가 포함된 목록
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getContractsWithTrusteeInfo(String status) {
+        // 상태에 따라 적절한 계약 목록 조회
+        List<Contract> contracts;
+        
+        switch (status.toLowerCase()) {
+            case "inactive":
+                // 비활성화(만료된) 계약 조회
+                contracts = contractRepository.findInactiveContractsWithBasicDetails();
+                log.info("비활성화(만료) 계약 목록 조회");
+                break;
+            case "all":
+                // 모든 계약 조회(활성화/비활성화 상관없이)
+                contracts = contractRepository.findAllContractsWithBasicDetails();
+                log.info("전체 계약 목록 조회");
+                break;
+            case "active":
+            default:
+                // 활성화된 계약만 조회(기본값)
+                contracts = contractRepository.findActiveContractsWithBasicDetails();
+                log.info("활성화된 계약 목록 조회");
+                break;
+        }
+        
+        // 반환할 데이터 목록 생성
+        List<Map<String, Object>> result = new ArrayList<>();
+        
+        for (Contract contract : contracts) {
+            Map<String, Object> contractData = new HashMap<>();
+            
+            // 1. 계약 기본 정보
+            contractData.put("id", contract.getId());
+            contractData.put("title", contract.getTitle());
+            contractData.put("contractNumber", contract.getContractNumber());
+            contractData.put("startDate", contract.getStartDate());
+            contractData.put("expiryDate", contract.getExpiryDate());
+            contractData.put("insuranceStartDate", contract.getInsuranceStartDate());
+            contractData.put("insuranceEndDate", contract.getInsuranceEndDate());
+            contractData.put("createdAt", contract.getCreatedAt());
+            contractData.put("createdBy", contract.getCreatedBy());
+            contractData.put("progressRate", contract.getProgressRate());
+            
+            // 2. 상태 코드 정보
+            if (contract.getStatusCode() != null) {
+                contractData.put("statusCodeId", contract.getStatusCode().getCodeId());
+                contractData.put("statusName", contract.getStatusCode().getCodeName());
+            }
+            
+            // 3. 계약 구분 코드 정보
+            if (contract.getContractTypeCode() != null) {
+                contractData.put("contractTypeCodeId", contract.getContractTypeCode().getCodeId());
+                contractData.put("contractTypeName", contract.getContractTypeCode().getCodeName());
+            }
+            
+            // 4. 회사 기본 정보
+            if (contract.getCompany() != null) {
+                contractData.put("companyId", contract.getCompany().getId());
+                contractData.put("storeName", contract.getCompany().getStoreName());
+            }
+            
+            // 5. 수탁자 정보 (CompanyTrusteeHistory)
+            if (contract.getTrusteeHistory() != null) {
+                CompanyTrusteeHistory trustee = contract.getTrusteeHistory();
+                
+                // 수탁자 관련 정보
+                contractData.put("trusteeHistoryId", trustee.getId());
+                contractData.put("trustee", trustee.getTrustee());
+                contractData.put("trusteeCode", trustee.getTrusteeCode());
+                contractData.put("representativeName", trustee.getRepresentativeName());
+                contractData.put("businessNumber", trustee.getBusinessNumber());
+                contractData.put("companyName", trustee.getCompanyName());
+                contractData.put("storeTelNumber", trustee.getStoreTelNumber());
+                contractData.put("managerName", trustee.getManagerName());
+                contractData.put("email", trustee.getEmail());
+                contractData.put("phoneNumber", trustee.getPhoneNumber());
+                contractData.put("businessType", trustee.getBusinessType());
+                contractData.put("businessCategory", trustee.getBusinessCategory());
+                
+                // 시작일/종료일 정보
+                contractData.put("trusteeStartDate", trustee.getStartDate());
+                contractData.put("trusteeEndDate", trustee.getEndDate());
+                contractData.put("trusteeInsuranceStartDate", trustee.getInsuranceStartDate());
+                contractData.put("trusteeInsuranceEndDate", trustee.getInsuranceEndDate());
+            } else {
+                // 수탁자 정보가 없는 경우 계약의 회사 정보나 다른 필드에서 가져올 수 있는 정보 활용
+                // (계약에 따라 구현이 달라질 수 있음)
+                contractData.put("trustee", contract.getTrusteeName());
+                contractData.put("trusteeCode", contract.getTrusteeCode());
+                contractData.put("representativeName", contract.getRepresentativeName());
+                contractData.put("businessNumber", contract.getBusinessNumber());
+            }
+            
+            // 최종 데이터 추가
+            result.add(contractData);
+        }
+        
+        log.info("수탁자 정보를 포함한 계약 목록 조회 완료: {}건", result.size());
+        return result;
+    }
+
+    /**
+     * 특정 계약의 상세 정보와 연결된 수탁자 정보를 함께 조회합니다.
+     * 
+     * @param contractId 계약 ID
+     * @return 계약 정보와 수탁자 정보가 포함된 Map
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getContractWithTrusteeInfo(Long contractId) {
+        // 1. 계약 기본 정보와 수탁자 정보 조회
+        Contract contract = contractRepository.findContractWithBasicDetailsById(contractId);
+        
+        if (contract == null) {
+            throw new RuntimeException("계약을 찾을 수 없습니다. ID: " + contractId);
+        }
+        
+        // 2. 참여자 정보 조회
+        Contract contractWithParticipants = contractRepository.findContractWithParticipantsById(contractId);
+        
+        // 3. 템플릿 매핑 정보 조회
+        Contract contractWithTemplateMappings = contractRepository.findContractWithTemplateMappingsById(contractId);
+        
+        // 반환할 데이터 객체 생성
+        Map<String, Object> result = new HashMap<>();
+        
+        // 1. 계약 기본 정보
+        result.put("id", contract.getId());
+        result.put("title", contract.getTitle());
+        result.put("contractNumber", contract.getContractNumber());
+        result.put("startDate", contract.getStartDate());
+        result.put("expiryDate", contract.getExpiryDate());
+        result.put("insuranceStartDate", contract.getInsuranceStartDate());
+        result.put("insuranceEndDate", contract.getInsuranceEndDate());
+        result.put("createdAt", contract.getCreatedAt());
+        result.put("createdBy", contract.getCreatedBy());
+        result.put("description", contract.getDescription());
+        result.put("progressRate", contract.getProgressRate());
+        result.put("department", contract.getDepartment());
+        result.put("active", contract.isActive());
+        
+        // 2. 상태 코드 정보
+        if (contract.getStatusCode() != null) {
+            result.put("statusCodeId", contract.getStatusCode().getCodeId());
+            result.put("statusName", contract.getStatusCode().getCodeName());
+        }
+        
+        // 3. 계약 구분 코드 정보
+        if (contract.getContractTypeCode() != null) {
+            result.put("contractTypeCodeId", contract.getContractTypeCode().getCodeId());
+            result.put("contractTypeName", contract.getContractTypeCode().getCodeName());
+        }
+        
+        // 4. 회사 기본 정보
+        if (contract.getCompany() != null) {
+            result.put("companyId", contract.getCompany().getId());
+            result.put("storeName", contract.getCompany().getStoreName());
+        }
+        
+        // 5. 수탁자 정보 (CompanyTrusteeHistory)
+        if (contract.getTrusteeHistory() != null) {
+            CompanyTrusteeHistory trustee = contract.getTrusteeHistory();
+            
+            // 수탁자 관련 정보
+            result.put("trusteeHistoryId", trustee.getId());
+            result.put("trustee", trustee.getTrustee());
+            result.put("trusteeCode", trustee.getTrusteeCode());
+            result.put("representativeName", trustee.getRepresentativeName());
+            result.put("businessNumber", trustee.getBusinessNumber());
+            result.put("companyName", trustee.getCompanyName());
+            result.put("storeTelNumber", trustee.getStoreTelNumber());
+            result.put("managerName", trustee.getManagerName());
+            result.put("email", trustee.getEmail());
+            result.put("phoneNumber", trustee.getPhoneNumber());
+            result.put("subBusinessNumber", trustee.getSubBusinessNumber());
+            result.put("businessType", trustee.getBusinessType());
+            result.put("businessCategory", trustee.getBusinessCategory());
+            
+            // 시작일/종료일 정보
+            result.put("trusteeStartDate", trustee.getStartDate());
+            result.put("trusteeEndDate", trustee.getEndDate());
+            result.put("trusteeInsuranceStartDate", trustee.getInsuranceStartDate());
+            result.put("trusteeInsuranceEndDate", trustee.getInsuranceEndDate());
+        } else {
+            // 수탁자 정보가 없는 경우 계약의 회사 정보나 다른 필드에서 가져올 수 있는 정보 활용
+            result.put("trustee", contract.getTrusteeName());
+            result.put("trusteeCode", contract.getTrusteeCode());
+            result.put("representativeName", contract.getRepresentativeName());
+            result.put("businessNumber", contract.getBusinessNumber());
+        }
+        
+        // 6. 참여자 정보 (ContractParticipant)
+        if (contractWithParticipants.getParticipants() != null && !contractWithParticipants.getParticipants().isEmpty()) {
+            List<Map<String, Object>> participantsData = new ArrayList<>();
+            
+            for (ContractParticipant participant : contractWithParticipants.getParticipants()) {
+                Map<String, Object> participantData = new HashMap<>();
+                participantData.put("id", participant.getId());
+                participantData.put("name", participant.getName());
+                
+                // 암호화된 이메일과 전화번호를 복호화
+                try {
+                    // 이메일 복호화
+                    if (participant.getEmail() != null && !participant.getEmail().isEmpty()) {
+                        String decryptedEmail = encryptionUtil.decrypt(participant.getEmail());
+                        participantData.put("email", decryptedEmail);
+                    } else {
+                        participantData.put("email", null);
+                    }
+                    
+                    // 전화번호 복호화
+                    if (participant.getPhoneNumber() != null && !participant.getPhoneNumber().isEmpty()) {
+                        String decryptedPhone = encryptionUtil.decrypt(participant.getPhoneNumber());
+                        participantData.put("phoneNumber", decryptedPhone);
+                    } else {
+                        participantData.put("phoneNumber", null);
+                    }
+                } catch (Exception e) {
+                    // 복호화 실패 시 원본 값 사용
+                    log.error("참여자 정보 복호화 중 오류 발생: participantId={}, error={}", 
+                        participant.getId(), e.getMessage());
+                    participantData.put("email", participant.getEmail());
+                    participantData.put("phoneNumber", participant.getPhoneNumber());
+                }
+                
+                participantData.put("notifyType", participant.getNotifyType());
+                participantData.put("signed", participant.isSigned());
+                participantData.put("signedAt", participant.getSignedAt());
+                
+                // 참여자 상태 코드 정보
+                if (participant.getStatusCode() != null) {
+                    participantData.put("statusCodeId", participant.getStatusCode().getCodeId());
+                    participantData.put("statusName", participant.getStatusCode().getCodeName());
+                }
+                
+                participantsData.add(participantData);
+            }
+            
+            result.put("participants", participantsData);
+        }
+        
+        // 7. 템플릿 매핑 정보
+        if (contractWithTemplateMappings.getTemplateMappings() != null && !contractWithTemplateMappings.getTemplateMappings().isEmpty()) {
+            List<Map<String, Object>> templateMappingsData = new ArrayList<>();
+            
+            for (ContractTemplateMapping mapping : contractWithTemplateMappings.getTemplateMappings()) {
+                Map<String, Object> mappingData = new HashMap<>();
+                mappingData.put("id", mapping.getId());
+                mappingData.put("sortOrder", mapping.getSortOrder());
+                mappingData.put("processedPdfId", mapping.getProcessedPdfId());
+                
+                if (mapping.getTemplate() != null) {
+                    mappingData.put("templateId", mapping.getTemplate().getId());
+                    mappingData.put("templateName", mapping.getTemplate().getTemplateName());
+                }
+                
+                templateMappingsData.add(mappingData);
+            }
+            
+            result.put("templateMappings", templateMappingsData);
+        }
+        
+        log.info("계약 상세 정보와 수탁자 정보 조회 완료: contractId={}", contractId);
+        return result;
     }
 } 

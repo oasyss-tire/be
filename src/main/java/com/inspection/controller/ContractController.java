@@ -656,4 +656,38 @@ public class ContractController {
                 .body(new ErrorResponse("파일 업로드 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
+
+    /**
+     * 계약 목록 조회 API - 수탁자 정보 포함
+     * 계약 목록과 함께 연결된 수탁자 정보를 한 번에 반환합니다.
+     * @param status 계약 상태 필터링 (all: 전체, active: 활성화, inactive: 만료됨)
+     */
+    @GetMapping("/with-trustee")
+    public ResponseEntity<List<Map<String, Object>>> getContractsWithTrusteeInfo(
+            @RequestParam(value = "status", defaultValue = "active") String status) {
+        log.info("수탁자 정보를 포함한 계약 목록 조회 요청: status={}", status);
+        try {
+            List<Map<String, Object>> contractsWithTrusteeInfo = contractService.getContractsWithTrusteeInfo(status);
+            return ResponseEntity.ok(contractsWithTrusteeInfo);
+        } catch (Exception e) {
+            log.error("수탁자 정보를 포함한 계약 목록 조회 중 오류", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 계약 상세 조회 API - 수탁자 정보 포함
+     * 계약 상세 정보와 연결된 수탁자 정보를 한 번에 조회합니다.
+     */
+    @GetMapping("/{contractId}/with-trustee")
+    public ResponseEntity<Map<String, Object>> getContractWithTrusteeInfo(@PathVariable Long contractId) {
+        log.info("수탁자 정보를 포함한 계약 상세 조회 요청: contractId={}", contractId);
+        try {
+            Map<String, Object> contractWithTrusteeInfo = contractService.getContractWithTrusteeInfo(contractId);
+            return ResponseEntity.ok(contractWithTrusteeInfo);
+        } catch (Exception e) {
+            log.error("수탁자 정보를 포함한 계약 상세 조회 중 오류: contractId={}", contractId, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
 }

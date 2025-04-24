@@ -36,8 +36,7 @@ public class MyPageController {
         if (userDetails == null) {
             return ResponseEntity.badRequest().build();
         }
-        
-        log.info("사용자 계약 목록 조회 요청: {}", userDetails.getUsername());
+
         
         List<ContractDTO> contracts = myPageService.getMyContracts(userDetails.getUsername());
         return ResponseEntity.ok(contracts);

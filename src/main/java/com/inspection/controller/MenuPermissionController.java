@@ -36,7 +36,6 @@ public class MenuPermissionController {
         String username = auth.getName();
         Role role = findUserRole(username);
         
-        log.info("사용자 {} (역할: {})의 접근 가능 메뉴 조회", username, role);
         List<MenuDTO> menus = menuService.getAccessibleMenusByRole(role);
         
         return ResponseEntity.ok(menus);
@@ -50,8 +49,7 @@ public class MenuPermissionController {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String username = auth.getName();
         Role role = findUserRole(username);
-        
-        log.info("경로 접근 권한 확인 - 사용자: {}, 역할: {}, 경로: '{}'", username, role, path);
+
         boolean hasAccess = menuService.hasMenuAccess(role, path);
         
         Map<String, Boolean> response = new HashMap<>();
@@ -70,8 +68,7 @@ public class MenuPermissionController {
                 SecurityContextHolder.getContext().getAuthentication().getName());
             return ResponseEntity.status(403).body(Map.of("error", "관리자만 접근 가능합니다."));
         }
-        
-        log.info("전체 메뉴 목록 조회");
+
         List<MenuDTO> allMenus = menuService.getAllMenus();
         return ResponseEntity.ok(allMenus);
     }
@@ -86,8 +83,7 @@ public class MenuPermissionController {
                 SecurityContextHolder.getContext().getAuthentication().getName());
             return ResponseEntity.status(403).body(Map.of("error", "관리자만 접근 가능합니다."));
         }
-        
-        log.info("시스템 역할 목록 조회");
+
         return ResponseEntity.ok(List.of(Role.values()));
     }
 
@@ -103,7 +99,6 @@ public class MenuPermissionController {
         }
         
         try {
-            log.info("역할 ID: {}의 메뉴 권한 조회", roleId);
             Map<String, Boolean> permissions = menuService.getRoleMenuPermissions(roleId);
             return ResponseEntity.ok(permissions);
         } catch (IllegalArgumentException e) {
@@ -127,7 +122,6 @@ public class MenuPermissionController {
         }
         
         try {
-            log.info("역할 ID: {}의 메뉴 권한 업데이트, 항목 수: {}", roleId, permissions.size());
             menuService.updateRoleMenuPermissions(roleId, permissions);
             return ResponseEntity.ok(Map.of("message", "권한이 성공적으로 업데이트되었습니다."));
         } catch (Exception e) {

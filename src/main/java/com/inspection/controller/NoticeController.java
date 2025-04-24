@@ -41,14 +41,6 @@ public class NoticeController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime popupEndDate,
             @RequestParam(required = false) List<MultipartFile> images) {
         
-        // log.info("공지사항 등록 요청");
-        // log.info("제목: {}", title);
-        // log.info("내용: {}", content);
-        // log.info("작성자 ID: {}", userId);
-        // log.info("팝업 여부: {}", popup);
-        // log.info("팝업 시작일: {}", popupStartDate);
-        // log.info("팝업 종료일: {}", popupEndDate);
-        // log.info("이미지 첨부 여부: {}", (images != null && !images.isEmpty()));
         
         try {
             NoticeDTO notice = noticeService.createNotice(

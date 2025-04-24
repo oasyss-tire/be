@@ -274,6 +274,45 @@ public class CompanyService {
             Company updatedCompany = companyRepository.save(company);
             log.info("회사 정보 수정 완료: {}", updatedCompany.getStoreName());
             
+            // 활성화된 CompanyTrusteeHistory 조회 후 업데이트
+            try {
+                CompanyTrusteeHistory activeHistory = trusteeHistoryRepository.findByCompanyAndIsActiveTrue(company)
+                    .orElse(null);
+                
+                if (activeHistory != null) {
+                    // Company 엔티티의 수탁자 관련 정보를 CompanyTrusteeHistory에 반영
+                    activeHistory.setTrustee(updatedCompany.getTrustee());
+                    activeHistory.setTrusteeCode(updatedCompany.getTrusteeCode());
+                    activeHistory.setRepresentativeName(updatedCompany.getRepresentativeName());
+                    activeHistory.setManagerName(updatedCompany.getManagerName());
+                    activeHistory.setEmail(updatedCompany.getEmail());
+                    activeHistory.setPhoneNumber(updatedCompany.getPhoneNumber());
+                    activeHistory.setBusinessNumber(updatedCompany.getBusinessNumber());
+                    activeHistory.setSubBusinessNumber(updatedCompany.getSubBusinessNumber());
+                    activeHistory.setCompanyName(updatedCompany.getCompanyName());
+                    activeHistory.setStoreTelNumber(updatedCompany.getStoreTelNumber());
+                    activeHistory.setBusinessType(updatedCompany.getBusinessType());
+                    activeHistory.setBusinessCategory(updatedCompany.getBusinessCategory());
+                    activeHistory.setStartDate(updatedCompany.getStartDate());
+                    activeHistory.setEndDate(updatedCompany.getEndDate());
+                    activeHistory.setInsuranceStartDate(updatedCompany.getInsuranceStartDate());
+                    activeHistory.setInsuranceEndDate(updatedCompany.getInsuranceEndDate());
+                    
+                    // 수정자 정보 설정 (로그인한 사용자 또는 시스템)
+                    activeHistory.setModifiedBy(request.getCreatedBy() != null ? request.getCreatedBy() : "시스템");
+                    activeHistory.setReason("회사 정보 수정에 따른 업데이트");
+                    
+                    trusteeHistoryRepository.save(activeHistory);
+                    log.info("활성화된 수탁자 이력 정보도 함께 업데이트 완료: historyId={}, trustee={}", 
+                        activeHistory.getId(), activeHistory.getTrustee());
+                } else {
+                    log.info("활성화된 수탁자 이력이 없어 수탁자 이력 업데이트를 건너뜁니다. companyId={}", companyId);
+                }
+            } catch (Exception e) {
+                // 수탁자 이력 업데이트 실패는 회사 정보 업데이트에 영향을 주지 않도록 함
+                log.warn("활성화된 수탁자 이력 업데이트 중 오류 발생: {}", e.getMessage(), e);
+            }
+            
             return CompanyDTO.fromEntity(updatedCompany);
         } catch (ResponseStatusException ex) {
             // 이미 ResponseStatusException인 경우 그대로 전달
@@ -438,6 +477,20 @@ public class CompanyService {
         
         Company savedCompany = companyRepository.save(company);
         log.info("회사 이미지 수정 완료: {}", savedCompany.getStoreName());
+        
+        // 활성화된 CompanyTrusteeHistory 확인 및 업데이트 (필요시)
+        try {
+            CompanyTrusteeHistory activeHistory = trusteeHistoryRepository.findByCompanyAndIsActiveTrue(company)
+                .orElse(null);
+            
+            if (activeHistory != null) {
+                log.info("활성화된 수탁자 이력이 있지만, 이미지 수정은 수탁자 이력에 영향을 주지 않습니다: historyId={}", 
+                    activeHistory.getId());
+            }
+        } catch (Exception e) {
+            // 수탁자 이력 조회 실패는 기능에 영향을 주지 않도록 처리
+            log.warn("활성화된 수탁자 이력 조회 중 오류 발생: {}", e.getMessage());
+        }
         
         return CompanyDTO.fromEntity(savedCompany);
     }

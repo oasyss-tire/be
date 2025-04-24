@@ -142,6 +142,7 @@ public class TrusteeService {
         newHistory.setCompany(company);
         newHistory.setActive(false); // 스케줄러가 시작일에 활성화할 때까지 비활성 상태 유지
         
+        
         // 기존 정보 복사
         newHistory.setTrustee(activeHistory.getTrustee());
         newHistory.setTrusteeCode(activeHistory.getTrusteeCode());
@@ -229,10 +230,10 @@ public class TrusteeService {
         // 3. 계약 생성 요청 준비 (이전 계약 정보 기반)
         CreateContractRequest contractRequest = new CreateContractRequest();
         
-        // 기본 정보 설정
+        // 기본 정보 설정 
         contractRequest.setCompanyId(companyId);
-        contractRequest.setTitle(company.getStoreName() + " - 재계약");
-        contractRequest.setDescription("재계약: " + company.getStoreName());
+        contractRequest.setTitle(company.getCompanyName() + " - 재계약");
+        contractRequest.setDescription("재계약: " + company.getCompanyName());
         
         // 이전 계약에서 부서 정보 설정 (만약 있다면)
         if (previousContract.getDepartment() != null) {
@@ -333,11 +334,16 @@ public class TrusteeService {
             // 문서 코드는 필수가 아니므로 오류가 발생해도 계속 진행
         }
         
+        // 추가: 수탁자 이력 ID 설정 (신규 수탁자 이력 ID)
+        contractRequest.setTrusteeHistoryId(savedHistory.getId());
+        log.info("새 계약에 수탁자 이력 ID 설정: trusteeHistoryId={}", savedHistory.getId());
+        
         // 4. ContractService를 통해 새 계약 생성
         Contract newContract = contractService.createContract(contractRequest);
         log.info("재계약 계약 생성 완료: contractId={}, title={}", newContract.getId(), newContract.getTitle());
         
-        // 5. 새 CompanyTrusteeHistory 레코드에 새 contract 연결
+        // 5. 새 CompanyTrusteeHistory 레코드에 새 contract 연결 (기존 레코드는 변경하지 않음)
+        // 새 수탁자 이력에만 계약 연결, 기존 수탁자 이력은 그대로 유지
         savedHistory.setContract(newContract);
         trusteeHistoryRepository.save(savedHistory);
         log.info("새 수탁자 이력과 계약 연결 완료: historyId={}, contractId={}", savedHistory.getId(), newContract.getId());
@@ -376,6 +382,8 @@ public class TrusteeService {
                 dto.setTrusteeCode(history.getTrusteeCode());
                 dto.setRepresentativeName(history.getRepresentativeName());
                 dto.setBusinessNumber(history.getBusinessNumber());
+                dto.setPhoneNumber(history.getPhoneNumber());
+                dto.setEmail(history.getEmail());
                 dto.setStartDate(history.getStartDate());
                 dto.setEndDate(history.getEndDate());
                 dto.setInsuranceStartDate(history.getInsuranceStartDate());
@@ -384,16 +392,36 @@ public class TrusteeService {
                 
                 // 활성 상태 표시 추가
                 if (history.isActive()) {
-                    dto.setStatusLabel("현재 계약 중");
-                    dto.setStatusType("active");
+                    // 오늘로부터 7일 이내에 종료되는 계약인지 확인
+                    if (history.getEndDate() != null && 
+                        !history.getEndDate().isBefore(today) && 
+                        history.getEndDate().isBefore(today.plusDays(8))) {
+                        dto.setStatusLabel("만료 예정 계약 (" + history.getEndDate() + " 종료)");
+                        dto.setStatusType("expiring");
+                    } else {
+                        dto.setStatusLabel("현재 계약 중");
+                        dto.setStatusType("active");
+                    }
                 } else {
-                    // 시작일이 미래인 경우
-                    if (history.getStartDate() != null && history.getStartDate().isAfter(today)) {
+                    // 시작일이 오늘인 경우 (오늘 시작 예정)
+                    if (history.getStartDate() != null && history.getStartDate().isEqual(today)) {
+                        dto.setStatusLabel("오늘 시작 예정");
+                        dto.setStatusType("starting_today");
+                    }
+                    // 시작일이 미래인 경우 (예정된 계약)
+                    else if (history.getStartDate() != null && history.getStartDate().isAfter(today)) {
                         dto.setStatusLabel("예정된 계약 (" + history.getStartDate() + " 시작)");
                         dto.setStatusType("pending");
-                    } else {
+                    } 
+                    // 종료일이 오늘 이전인 경우 (종료된 계약)
+                    else if (history.getEndDate() != null && history.getEndDate().isBefore(today)) {
                         dto.setStatusLabel("종료된 계약");
                         dto.setStatusType("expired");
+                    }
+                    // 그 외의 경우 (비활성 상태지만 날짜 조건이 명확하지 않은 경우)
+                    else {
+                        dto.setStatusLabel("비활성 계약");
+                        dto.setStatusType("inactive");
                     }
                 }
                 

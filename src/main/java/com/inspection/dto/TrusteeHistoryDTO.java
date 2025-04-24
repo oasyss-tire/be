@@ -19,6 +19,8 @@ public class TrusteeHistoryDTO {
     private String trusteeCode;       // 수탁코드
     private String representativeName; // 대표자명
     private String businessNumber;    // 사업자번호
+    private String phoneNumber;       // 휴대폰번호
+    private String email;             // 이메일
     private LocalDate startDate;      // 계약 시작일
     private LocalDate endDate;        // 계약 종료일
     private LocalDate insuranceStartDate; // 보험 시작일

@@ -84,7 +84,7 @@ public class Contract {
     
     private String description;             // 계약 설명/비고
     private String cancelReason;            // 계약 취소/거절 사유
-    private boolean active;  // isActive -> active로 변경
+    private boolean active;  // 활성화
     
     // 계약 관련 추가 필드들
     private String contractNumber;          // 계약 번호 (관리용)

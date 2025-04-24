@@ -11,10 +11,79 @@ import com.inspection.entity.Contract;
 public interface ContractRepository extends JpaRepository<Contract, Long> {
     List<Contract> findByActiveTrueOrderByCreatedAtDesc();
     
+    /**
+     * 활성화된 계약 목록 조회
+     */
+    List<Contract> findByActiveTrue();
+    
+    /**
+     * 활성화된 계약 정보와 기본 연관 엔티티들을 함께 조회 (N+1 문제 해결을 위한 페치 조인)
+     */
+    @Query("SELECT c FROM Contract c " +
+           "LEFT JOIN FETCH c.trusteeHistory th " +
+           "LEFT JOIN FETCH c.company co " +
+           "LEFT JOIN FETCH c.statusCode sc " +
+           "LEFT JOIN FETCH c.contractTypeCode ctc " +
+           "WHERE c.active = true " +
+           "ORDER BY c.createdAt DESC")
+    List<Contract> findActiveContractsWithBasicDetails();
+    
+    /**
+     * 비활성화된(만료된) 계약 정보와 기본 연관 엔티티들을 함께 조회
+     */
+    @Query("SELECT c FROM Contract c " +
+           "LEFT JOIN FETCH c.trusteeHistory th " +
+           "LEFT JOIN FETCH c.company co " +
+           "LEFT JOIN FETCH c.statusCode sc " +
+           "LEFT JOIN FETCH c.contractTypeCode ctc " +
+           "WHERE c.active = false " +
+           "ORDER BY c.createdAt DESC")
+    List<Contract> findInactiveContractsWithBasicDetails();
+    
+    /**
+     * 모든 계약 정보(활성화/비활성화 상관없이)와 기본 연관 엔티티들을 함께 조회
+     */
+    @Query("SELECT c FROM Contract c " +
+           "LEFT JOIN FETCH c.trusteeHistory th " +
+           "LEFT JOIN FETCH c.company co " +
+           "LEFT JOIN FETCH c.statusCode sc " +
+           "LEFT JOIN FETCH c.contractTypeCode ctc " +
+           "ORDER BY c.createdAt DESC")
+    List<Contract> findAllContractsWithBasicDetails();
+    
     @Query("SELECT c.contractNumber FROM Contract c " +
            "WHERE c.contractNumber LIKE :prefix% " +
            "ORDER BY c.contractNumber DESC")
     List<String> findContractNumbersByPrefix(@Param("prefix") String prefix);
+    
+    /**
+     * 특정 계약과 기본 연관 엔티티를 함께 조회 (N+1 문제 해결)
+     */
+    @Query("SELECT c FROM Contract c " +
+           "LEFT JOIN FETCH c.trusteeHistory th " +
+           "LEFT JOIN FETCH c.company co " +
+           "LEFT JOIN FETCH c.statusCode sc " +
+           "LEFT JOIN FETCH c.contractTypeCode ctc " +
+           "WHERE c.id = :contractId")
+    Contract findContractWithBasicDetailsById(@Param("contractId") Long contractId);
+    
+    /**
+     * 특정 계약의 참여자 정보를 조회
+     */
+    @Query("SELECT c FROM Contract c " +
+           "LEFT JOIN FETCH c.participants p " +
+           "LEFT JOIN FETCH p.statusCode psc " +
+           "WHERE c.id = :contractId")
+    Contract findContractWithParticipantsById(@Param("contractId") Long contractId);
+    
+    /**
+     * 특정 계약의 템플릿 매핑 정보를 조회
+     */
+    @Query("SELECT c FROM Contract c " +
+           "LEFT JOIN FETCH c.templateMappings tm " +
+           "LEFT JOIN FETCH tm.template t " +
+           "WHERE c.id = :contractId")
+    Contract findContractWithTemplateMappingsById(@Param("contractId") Long contractId);
     
     boolean existsByContractNumber(String contractNumber);
 } 
