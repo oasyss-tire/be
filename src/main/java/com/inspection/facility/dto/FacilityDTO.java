@@ -25,7 +25,6 @@ public class FacilityDTO {
     private String brandName;           // 브랜드명
     private String facilityTypeCode;    // 시설물 항목 코드
     private String facilityTypeName;    // 시설물 항목명
-    private String modelNumber;         // 품목 모델번호
     private String serialNumber;        // 시설물 시리얼 번호
     private LocalDateTime installationDate; // 최초 설치일
     private BigDecimal acquisitionCost; // 취득가액
@@ -81,7 +80,6 @@ public class FacilityDTO {
                 .brandName(facility.getBrand() != null ? facility.getBrand().getCodeName() : null)
                 .facilityTypeCode(facility.getFacilityType() != null ? facility.getFacilityType().getCodeId() : null)
                 .facilityTypeName(facility.getFacilityType() != null ? facility.getFacilityType().getCodeName() : null)
-                .modelNumber(facility.getModelNumber())
                 .serialNumber(facility.getSerialNumber())
                 .installationDate(facility.getInstallationDate())
                 .acquisitionCost(facility.getAcquisitionCost())

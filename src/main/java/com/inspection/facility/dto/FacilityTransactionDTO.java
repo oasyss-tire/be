@@ -18,11 +18,14 @@ import lombok.Setter;
 public class FacilityTransactionDTO {
     
     private Long transactionId;                // 트랜잭션 ID
+    private String batchId;                    // 배치 ID (UUID)
     private Long facilityId;                   // 시설물 ID
     private String facilitySerialNumber;       // 시설물 시리얼 번호
-    private String facilityModelNumber;        // 시설물 모델 번호
     private String facilityTypeName;           // 시설물 유형명
     private String managementNumber;           // 시설물 관리번호
+    
+    private String brandCode;                  // 브랜드 코드
+    private String brandCodeName;              // 브랜드 이름
     
     private String transactionTypeCode;        // 트랜잭션 유형 코드
     private String transactionTypeName;        // 트랜잭션 유형명
@@ -50,6 +53,10 @@ public class FacilityTransactionDTO {
     private String performedByName;            // 트랜잭션 수행자명
     
     private String transactionRef;             // 트랜잭션 참조 번호
+    
+    private Boolean isCancelled;               // 취소 여부
+    private String cancellationReason;         // 취소 사유
+    
     private LocalDateTime createdAt;           // 생성일시
     private LocalDateTime updatedAt;           // 수정일시
     
@@ -61,11 +68,14 @@ public class FacilityTransactionDTO {
         
         return FacilityTransactionDTO.builder()
                 .transactionId(entity.getTransactionId())
+                .batchId(entity.getBatchId())
                 .facilityId(entity.getFacility().getFacilityId())
                 .facilitySerialNumber(entity.getFacility().getSerialNumber())
-                .facilityModelNumber(entity.getFacility().getModelNumber())
                 .facilityTypeName(entity.getFacility().getFacilityType().getCodeName())
                 .managementNumber(entity.getFacility().getManagementNumber())
+                
+                .brandCode(entity.getFacility().getBrand() != null ? entity.getFacility().getBrand().getCodeId() : null)
+                .brandCodeName(entity.getFacility().getBrand() != null ? entity.getFacility().getBrand().getCodeName() : null)
                 
                 .transactionTypeCode(entity.getTransactionType().getCodeId())
                 .transactionTypeName(entity.getTransactionType().getCodeName())
@@ -93,6 +103,8 @@ public class FacilityTransactionDTO {
                 .performedByName(entity.getPerformedBy() != null ? entity.getPerformedBy().getUserName() : null)
                 
                 .transactionRef(entity.getTransactionRef())
+                .isCancelled(entity.getIsCancelled())
+                .cancellationReason(entity.getCancellationReason())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

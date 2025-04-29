@@ -1,8 +1,14 @@
 package com.inspection.facility.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -20,18 +26,20 @@ import com.inspection.entity.Company;
 import com.inspection.entity.User;
 import com.inspection.facility.dto.FacilityTransactionDTO;
 import com.inspection.facility.dto.FacilityTransactionRequest;
+import com.inspection.facility.dto.TransactionUpdateDTO;
 import com.inspection.facility.entity.Facility;
 import com.inspection.facility.entity.FacilityTransaction;
 import com.inspection.facility.repository.FacilityRepository;
 import com.inspection.facility.repository.FacilityTransactionRepository;
+import com.inspection.finance.service.VoucherService;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
-import com.inspection.finance.service.VoucherService;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 
 @Slf4j
 @Service
@@ -232,6 +240,13 @@ public class FacilityTransactionService {
             throw new IllegalStateException("인증된 사용자만 트랜잭션을 생성할 수 있습니다.");
         }
         
+        // 배치 ID 설정 (없는 경우 새로 생성)
+        String batchId = request.getBatchId();
+        if (batchId == null || batchId.isBlank()) {
+            batchId = UUID.randomUUID().toString();
+            log.debug("새 배치 ID 생성됨: {}", batchId);
+        }
+        
         // 트랜잭션 엔티티 생성
         FacilityTransaction transaction = new FacilityTransaction();
         transaction.setFacility(facility);
@@ -249,6 +264,8 @@ public class FacilityTransactionService {
         transaction.setServiceRequest(serviceRequest);
         transaction.setPerformedBy(performer);
         transaction.setTransactionRef(request.getTransactionRef());
+        transaction.setBatchId(batchId);
+        transaction.setIsCancelled(false);
         
         // 트랜잭션 저장
         FacilityTransaction savedTransaction = transactionRepository.save(transaction);
@@ -273,11 +290,11 @@ public class FacilityTransactionService {
             log.error("전표 생성 중 오류 발생: {}", e.getMessage(), e);
             // 전표 생성 실패가 트랜잭션 생성 자체를 실패시키지 않도록 예외 처리
         }
-        
-        log.info("트랜잭션이 생성되었습니다. ID: {}, 유형: {}, 시설물: {}", 
+
+        log.info("트랜잭션 생성 완료: ID={}, 유형={}, 배치ID={}", 
                 savedTransaction.getTransactionId(), 
-                savedTransaction.getTransactionType().getCodeName(),
-                savedTransaction.getFacility().getSerialNumber());
+                transactionType.getCodeName(),
+                batchId);
         
         return FacilityTransactionDTO.fromEntity(savedTransaction);
     }
@@ -338,10 +355,7 @@ public class FacilityTransactionService {
         // 트랜잭션 생성
         FacilityTransactionDTO result = createTransaction(transactionRequest);
         
-        log.info("대여 트랜잭션이 처리되었습니다. 시설물: {}, 대여자: {}, 반납 예정일: {}", 
-                facility.getSerialNumber(), 
-                request.getToCompanyId(), 
-                request.getExpectedReturnDate());
+
         
         return result;
     }
@@ -394,9 +408,7 @@ public class FacilityTransactionService {
                 .orElseThrow(() -> new EntityNotFoundException("반납 트랜잭션을 찾을 수 없습니다: " + result.getTransactionId()));
         rentalTransaction.setRelatedTransaction(returnTransaction);
         transactionRepository.save(rentalTransaction);
-        
-        log.info("반납 트랜잭션이 처리되었습니다. 시설물: {}, 반납일: {}", 
-                facility.getSerialNumber(), actualReturnDate);
+
         
         return result;
     }
@@ -465,8 +477,7 @@ public class FacilityTransactionService {
         }
         
         String operationType = request.getIsReturn() ? "복귀" : "이동";
-        log.info("AS 트랜잭션({})이 처리되었습니다. 시설물: {}, AS 요청 ID: {}", 
-                operationType, facility.getSerialNumber(), request.getServiceRequestId());
+
         
         return result;
     }
@@ -480,9 +491,20 @@ public class FacilityTransactionService {
         Facility facility = facilityRepository.findById(request.getFacilityId())
                 .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + request.getFacilityId()));
         
-        // 이미 폐기된 시설물인지 확인
-        if (facility.getStatus() != null && facility.getStatus().getCodeId().equals(STATUS_DISCARDED)) {
+        // 이미 폐기된 시설물인지 확인 (시설물 상태 및 활성 상태 모두 확인)
+        if ((facility.getStatus() != null && facility.getStatus().getCodeId().equals(STATUS_DISCARDED)) || 
+            !facility.isActive()) {
             throw new IllegalStateException("이미 폐기된 시설물입니다: " + facility.getSerialNumber());
+        }
+        
+        // 현재 사용자 정보 가져오기
+        String userId = null;
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated() && 
+            !"anonymousUser".equals(authentication.getPrincipal())) {
+            userId = authentication.getName();
+        } else {
+            throw new IllegalStateException("인증된 사용자만 폐기 처리할 수 있습니다.");
         }
         
         // 기본 요청 객체 생성
@@ -498,6 +520,12 @@ public class FacilityTransactionService {
         // 마지막 가치 평가일 업데이트
         facility.setLastValuationDate(LocalDateTime.now());
         
+        // 새로 추가된 폐기 관련 필드 업데이트
+        facility.setActive(false); // 활성 상태 변경
+        facility.setDiscardReason(request.getNotes()); // 폐기 사유
+        facility.setDiscardedAt(LocalDateTime.now()); // 폐기 일시
+        facility.setDiscardedBy(userId); // 폐기 처리자
+        
         // 트랜잭션 생성 (현재 가치가 유지된 상태로 전표 생성)
         FacilityTransactionDTO result = createTransaction(transactionRequest);
         
@@ -506,9 +534,6 @@ public class FacilityTransactionService {
         
         // 변경사항 저장
         facilityRepository.save(facility);
-        
-        log.info("폐기 트랜잭션이 처리되었습니다. 시설물: {}, 사유: {}, 현재 가치가 {}에서 0원으로 조정됨", 
-                facility.getSerialNumber(), request.getNotes(), facility.getCurrentValue());
         
         return result;
     }
@@ -523,7 +548,7 @@ public class FacilityTransactionService {
         }
         
         transactionRepository.deleteById(transactionId);
-        log.info("트랜잭션이 삭제되었습니다. ID: {}", transactionId);
+
     }
 
     /**
@@ -546,12 +571,11 @@ public class FacilityTransactionService {
         transactionRequest.setStatusAfterCode(request.getStatusAfterCode() != null ? 
                 request.getStatusAfterCode() : STATUS_NORMAL);  // 기본 상태는 사용중
         transactionRequest.setTransactionRef(request.getTransactionRef());
+        transactionRequest.setBatchId(request.getBatchId());    // 배치 ID 설정
         
         // 트랜잭션 생성
         FacilityTransactionDTO result = createTransaction(transactionRequest);
-        
-        log.info("입고 트랜잭션이 처리되었습니다. 시설물: {}, 입고 회사: {}", 
-                facility.getSerialNumber(), request.getToCompanyId());
+
         
         return result;
     }
@@ -576,6 +600,7 @@ public class FacilityTransactionService {
         transactionRequest.setStatusAfterCode(request.getStatusAfterCode() != null ? 
                 request.getStatusAfterCode() : STATUS_NORMAL);  // 기본 상태는 사용중
         transactionRequest.setTransactionRef(request.getTransactionRef());
+        transactionRequest.setBatchId(request.getBatchId());    // 배치 ID 설정
         
         // 트랜잭션 생성
         FacilityTransactionDTO result = createTransaction(transactionRequest);
@@ -587,13 +612,9 @@ public class FacilityTransactionService {
             
             facility.setOwnerCompany(newOwnerCompany);
             facilityRepository.save(facility);
-            
-            log.info("시설물 소유권이 변경되었습니다. 시설물: {}, 새 소유자: {}", 
-                    facility.getSerialNumber(), newOwnerCompany.getStoreName());
+
         }
-        
-        log.info("출고 트랜잭션이 처리되었습니다. 시설물: {}, 출발 회사: {}, 도착 회사: {}", 
-                facility.getSerialNumber(), request.getFromCompanyId(), request.getToCompanyId());
+
         
         return result;
     }
@@ -623,13 +644,304 @@ public class FacilityTransactionService {
         transactionRequest.setStatusAfterCode(request.getStatusAfterCode() != null ? 
                 request.getStatusAfterCode() : STATUS_NORMAL);  // 기본 상태는 사용중
         transactionRequest.setTransactionRef(request.getTransactionRef());
+        transactionRequest.setBatchId(request.getBatchId());    // 배치 ID 설정
         
         // 트랜잭션 생성
         FacilityTransactionDTO result = createTransaction(transactionRequest);
         
-        log.info("이동 트랜잭션이 처리되었습니다. 시설물: {}, 출발 회사: {}, 도착 회사: {}", 
-                facility.getSerialNumber(), request.getFromCompanyId(), request.getToCompanyId());
-        
         return result;
+    }
+
+    /**
+     * 트랜잭션 조회
+     * @param transactionId 트랜잭션 ID
+     * @return 조회된 트랜잭션
+     */
+    public Optional<FacilityTransaction> getTransaction(Long transactionId) {
+        return transactionRepository.findById(transactionId);
+    }
+    
+    /**
+     * 트랜잭션 수정
+     * @param transactionId 수정할 트랜잭션 ID
+     * @param updateDTO 수정 데이터
+     * @param userId 수정 요청자 ID
+     * @return 수정된 트랜잭션
+     */
+    @Transactional
+    public FacilityTransaction updateTransaction(Long transactionId, TransactionUpdateDTO updateDTO, String userId) {
+        // 1. 트랜잭션 조회
+        FacilityTransaction transaction = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new RuntimeException("트랜잭션을 찾을 수 없습니다: " + transactionId));
+        
+        // 2. 수정자 정보 조회
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("사용자 정보를 찾을 수 없습니다: " + userId));
+        
+        // 3. 수정 내역 기록 (감사 추적용)
+        String updateHistory = String.format(
+                "수정 전: 날짜=%s, 메모=%s, 출발회사=%s, 도착회사=%s | 사유: %s",
+                transaction.getTransactionDate(),
+                transaction.getNotes(),
+                transaction.getFromCompany() != null ? transaction.getFromCompany().getId() : "없음",
+                transaction.getToCompany() != null ? transaction.getToCompany().getId() : "없음",
+                updateDTO.getUpdateReason()
+        );
+        log.info("트랜잭션 수정 이력: {}", updateHistory);
+        
+        // 4. 필드 업데이트
+        // 트랜잭션 일시 업데이트
+        if (updateDTO.getTransactionDate() != null) {
+            transaction.setTransactionDate(updateDTO.getTransactionDate());
+        }
+        
+        // 메모 업데이트
+        if (updateDTO.getNotes() != null) {
+            transaction.setNotes(updateDTO.getNotes());
+        }
+        
+        // 출발 회사 업데이트
+        if (updateDTO.getFromCompanyId() != null) {
+            Company fromCompany = companyRepository.findById(updateDTO.getFromCompanyId())
+                    .orElseThrow(() -> new RuntimeException("출발 회사를 찾을 수 없습니다: " + updateDTO.getFromCompanyId()));
+            transaction.setFromCompany(fromCompany);
+        }
+        
+        // 도착 회사 업데이트
+        if (updateDTO.getToCompanyId() != null) {
+            Company toCompany = companyRepository.findById(updateDTO.getToCompanyId())
+                    .orElseThrow(() -> new RuntimeException("도착 회사를 찾을 수 없습니다: " + updateDTO.getToCompanyId()));
+            transaction.setToCompany(toCompany);
+        }
+        
+        // 5. 수정 시간 및 기타 정보 업데이트
+        transaction.setUpdatedAt(LocalDateTime.now());
+        
+        // 6. 저장 및 결과 반환
+        return transactionRepository.save(transaction);
+    }
+
+    /**
+     * 배치 ID로 트랜잭션 목록 조회
+     * @param batchId 배치 ID
+     * @return 트랜잭션 목록
+     */
+    public List<FacilityTransactionDTO> getTransactionsByBatchId(String batchId) {
+        List<FacilityTransaction> transactions = transactionRepository.findByBatchIdAndIsCancelledFalseOrderByTransactionDateDesc(batchId);
+        return transactions.stream()
+                .map(FacilityTransactionDTO::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 특정 날짜의 모든 배치 ID 조회
+     * @param date 날짜
+     * @return 배치 ID 목록
+     */
+    public List<String> getDistinctBatchIdsByDate(LocalDate date) {
+        LocalDateTime startOfDay = date.atStartOfDay();
+        LocalDateTime endOfDay = date.atTime(23, 59, 59, 999999999);
+        
+        return transactionRepository.findDistinctBatchIdsByTransactionDate(startOfDay);
+    }
+
+    /**
+     * 배치 요약 정보 조회
+     * @param batchId 배치 ID
+     * @return 배치 요약 정보 (트랜잭션 유형, 개수, 시설물 유형, 회사 등)
+     */
+    public Map<String, Object> getBatchSummary(String batchId) {
+        List<FacilityTransaction> transactions = transactionRepository.findByBatchIdAndIsCancelledFalseOrderByTransactionDateDesc(batchId);
+        
+        if (transactions.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        
+        // 대표 트랜잭션 (첫 번째)
+        FacilityTransaction representative = transactions.get(0);
+        
+        // 트랜잭션 유형 카운트
+        Map<String, Long> typeCount = transactions.stream()
+                .collect(Collectors.groupingBy(
+                        t -> t.getTransactionType().getCodeName(),
+                        Collectors.counting()));
+        
+        // 시설물 유형 카운트
+        Map<String, Long> facilityTypeCount = transactions.stream()
+                .collect(Collectors.groupingBy(
+                        t -> t.getFacility().getFacilityType().getCodeName(),
+                        Collectors.counting()));
+        
+        // 결과 맵 생성
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("batchId", batchId);
+        summary.put("transactionCount", transactions.size());
+        summary.put("transactionDate", representative.getTransactionDate());
+        summary.put("transactionType", representative.getTransactionType().getCodeName());
+        summary.put("typeCount", typeCount);
+        summary.put("facilityTypeCount", facilityTypeCount);
+        
+        // 회사 정보 (출발지/도착지)
+        if (representative.getFromCompany() != null) {
+            summary.put("fromCompany", Map.of(
+                    "id", representative.getFromCompany().getId(),
+                    "name", representative.getFromCompany().getStoreName()
+            ));
+        }
+        
+        if (representative.getToCompany() != null) {
+            summary.put("toCompany", Map.of(
+                    "id", representative.getToCompany().getId(),
+                    "name", representative.getToCompany().getStoreName()
+            ));
+        }
+        
+        return summary;
+    }
+
+    /**
+     * 특정 날짜의 배치 목록 조회
+     * @param date 날짜
+     * @return 배치 요약 정보 목록
+     */
+    public List<Map<String, Object>> getBatchesByDate(LocalDate date) {
+        List<String> batchIds = getDistinctBatchIdsByDate(date);
+        
+        return batchIds.stream()
+                .map(this::getBatchSummary)
+                .filter(summary -> !summary.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 트랜잭션 취소
+     * @param transactionId 취소할 트랜잭션 ID
+     * @param reason 취소 사유
+     * @param userId 취소 요청자 ID
+     * @return 취소된 트랜잭션
+     */
+    @Transactional
+    public FacilityTransactionDTO cancelTransaction(Long transactionId, String reason, String userId) {
+        FacilityTransaction transaction = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new RuntimeException("트랜잭션을 찾을 수 없습니다: " + transactionId));
+        
+        if (transaction.getIsCancelled()) {
+            throw new RuntimeException("이미 취소된 트랜잭션입니다: " + transactionId);
+        }
+        
+        // 취소 전 시설물의 상태와 위치 복구를 위해 시설물 정보 가져오기
+        Facility facility = transaction.getFacility();
+        String transactionTypeCode = transaction.getTransactionType().getCodeId();
+        
+        // 취소 상태로 변경
+        transaction.setIsCancelled(true);
+        transaction.setCancellationReason(reason);
+        transaction.setUpdatedAt(LocalDateTime.now());
+        
+        // 임대중 상태 코드 조회
+        Code rentalStatus = codeRepository.findById(STATUS_RENTAL)
+            .orElseThrow(() -> new EntityNotFoundException("임대중 상태 코드를 찾을 수 없습니다: " + STATUS_RENTAL));
+        
+        // 트랜잭션 유형에 따른 시설물 상태/위치 복구
+        switch (transactionTypeCode) {
+            case TRANSACTION_TYPE_MOVE:
+                // 이동 취소: 원래 위치(fromCompany)로 시설물 위치 복구
+                log.info("이동 트랜잭션 취소: 시설물 ID={}, 원래 위치(회사 ID)={}로 복구", 
+                        facility.getFacilityId(), transaction.getFromCompany().getId());
+                facility.setLocationCompany(transaction.getFromCompany());
+                break;
+                
+            case TRANSACTION_TYPE_DISPOSE:
+                // 폐기 취소: 이전 상태(statusBefore)로 시설물 상태 복구
+                log.info("폐기 트랜잭션 취소: 시설물 ID={}, 원래 상태={}로 복구", 
+                        facility.getFacilityId(), transaction.getStatusBefore().getCodeId());
+                facility.setStatus(transaction.getStatusBefore());
+                break;
+                
+            case TRANSACTION_TYPE_OUTBOUND:
+                // 출고 취소: 원래 위치로 복구
+                log.info("출고 트랜잭션 취소: 시설물 ID={}, 원래 위치(회사 ID)={}로 복구", 
+                        facility.getFacilityId(), transaction.getFromCompany().getId());
+                facility.setLocationCompany(transaction.getFromCompany());
+                break;
+                
+            case TRANSACTION_TYPE_INBOUND:
+                // 입고 취소: 처리 없음 (이전 위치가 없음)
+                log.info("입고 트랜잭션 취소: 시설물 ID={}", facility.getFacilityId());
+                break;
+                
+            case TRANSACTION_TYPE_SERVICE:
+                // AS 트랜잭션 취소: 원래 위치와 상태로 복구
+                log.info("AS 트랜잭션 취소: 시설물 ID={}, 원래 위치(회사 ID)={}로 복구", 
+                        facility.getFacilityId(), transaction.getFromCompany().getId());
+                facility.setLocationCompany(transaction.getFromCompany());
+                facility.setStatus(transaction.getStatusBefore());
+                break;
+                
+            case TRANSACTION_TYPE_RENTAL:
+                // 대여 트랜잭션 취소: 원래 위치와 상태로 복구
+                log.info("대여 트랜잭션 취소: 시설물 ID={}, 원래 위치(회사 ID)={}로 복구", 
+                        facility.getFacilityId(), transaction.getFromCompany().getId());
+                facility.setLocationCompany(transaction.getFromCompany());
+                
+                // 상태를 임대중으로 변경
+                facility.setStatus(rentalStatus);
+                break;
+                
+            case TRANSACTION_TYPE_RETURN:
+                // 반납 트랜잭션 취소: 대여 상태와 위치로 복구
+                log.info("반납 트랜잭션 취소: 시설물 ID={}, 대여 위치(회사 ID)={}로 복구", 
+                        facility.getFacilityId(), transaction.getFromCompany().getId());
+                facility.setLocationCompany(transaction.getFromCompany());
+                
+                // 상태를 임대중으로 변경
+                facility.setStatus(rentalStatus);
+                break;
+                
+            default:
+                log.info("기타 트랜잭션 취소: 시설물 ID={}, 트랜잭션 유형={}", 
+                        facility.getFacilityId(), transactionTypeCode);
+                break;
+        }
+        
+        // 시설물 변경사항 저장
+        facilityRepository.save(facility);
+        
+        // 트랜잭션 저장 및 결과 반환
+        FacilityTransaction savedTransaction = transactionRepository.save(transaction);
+        
+        // 감사 로그 기록
+        log.info("트랜잭션 취소 완료: ID={}, 유형={}, 사유={}, 사용자={}", 
+                transactionId, transactionTypeCode, reason, userId);
+        
+        return FacilityTransactionDTO.fromEntity(savedTransaction);
+    }
+
+    /**
+     * 배치 내 트랜잭션 일괄 취소
+     * @param batchId 배치 ID
+     * @param reason 취소 사유
+     * @param userId 취소 요청자 ID
+     * @return 취소된 트랜잭션 수
+     */
+    @Transactional
+    public int cancelBatchTransactions(String batchId, String reason, String userId) {
+        List<FacilityTransaction> transactions = transactionRepository.findByBatchIdAndIsCancelledFalseOrderByTransactionDateDesc(batchId);
+        
+        if (transactions.isEmpty()) {
+            return 0;
+        }
+        
+        // 각 트랜잭션에 대해 개별적으로 취소 처리를 수행
+        for (FacilityTransaction transaction : transactions) {
+            // 취소 처리
+            cancelTransaction(transaction.getTransactionId(), reason, userId);
+        }
+        
+        // 감사 로그 기록
+        log.info("배치 트랜잭션 일괄 취소 완료: batchId={}, 건수={}, 사유={}, 사용자={}", 
+                batchId, transactions.size(), reason, userId);
+        
+        return transactions.size();
     }
 } 

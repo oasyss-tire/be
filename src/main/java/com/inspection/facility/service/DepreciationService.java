@@ -168,7 +168,6 @@ public class DepreciationService {
         // 감가상각이 필요한 시설물 조회 (폐기된 시설물 제외, 이미 처리된 시설물 제외)
         List<Facility> facilitiesToProcess = facilityRepository.findFacilitiesForDepreciation(processedFacilityIds);
         
-        log.info("월별 감가상각 처리 시작: 총 {}개 시설물", facilitiesToProcess.size());
         
         // 각 시설물에 대해 감가상각 처리
         return facilitiesToProcess.stream()
@@ -207,7 +206,6 @@ public class DepreciationService {
         
         // 현재 가치가 이미 0이면 더 이상 감가상각할 필요 없음
         if (currentValue.compareTo(BigDecimal.ZERO) <= 0) {
-            log.info("시설물 ID {}의 현재 가치가 0 이하이므로 감가상각을 수행하지 않습니다", facility.getFacilityId());
             return null;
         }
         
@@ -216,7 +214,6 @@ public class DepreciationService {
         
         // 현재 가치가 이미 최소값(1000원) 이하면 더 이상 감가상각할 필요 없음
         if (currentValue.compareTo(minimumValue) <= 0) {
-            log.info("시설물 ID {}의 현재 가치가 최소값(1000원) 이하이므로 감가상각을 수행하지 않습니다", facility.getFacilityId());
             return null;
         }
         
@@ -230,8 +227,6 @@ public class DepreciationService {
         // 감가상각 후 가치가 최소값(1000원) 미만이 되면, 최소값까지만 감가상각
         if (currentValue.subtract(depreciationAmount).compareTo(minimumValue) < 0) {
             depreciationAmount = currentValue.subtract(minimumValue);
-            log.info("시설물 ID {}의 감가상각액이 조정되었습니다: {} → {} (최소값 1000원 유지)", 
-                    facility.getFacilityId(), depreciationAmount.add(minimumValue).subtract(currentValue), depreciationAmount);
         }
         
         // 새 장부가액 계산
@@ -262,15 +257,12 @@ public class DepreciationService {
         facility.setCurrentValue(newCurrentValue);
         facility.setLastValuationDate(depreciationDate);
         facilityRepository.save(facility);
-        
-        log.info("시설물 ID {}에 대한 감가상각 처리 완료: 이전 가치 {}, 감가상각액 {}, 현재 가치 {}", 
-                facility.getFacilityId(), currentValue, depreciationAmount, newCurrentValue);
+
         
         // 전표 생성
         try {
             voucherService.createDepreciationVoucher(facility, depreciationAmount);
-            log.info("감가상각 전표 생성 완료: 시설물 ID {}, 감가상각액 {}", 
-                    facility.getFacilityId(), depreciationAmount);
+
         } catch (Exception e) {
             log.error("감가상각 전표 생성 중 오류 발생: {}", e.getMessage(), e);
             // 전표 생성 실패가 감가상각 처리 자체를 실패시키지 않도록 예외 처리
@@ -350,8 +342,7 @@ public class DepreciationService {
         facility.setCurrentValue(BigDecimal.valueOf(updateDTO.getCurrentValue()));
         facility.setLastValuationDate(updateDTO.getDepreciationDate());
         facilityRepository.save(facility);
-        
-        log.info("감가상각 기록 ID {} 수정 완료", updateDTO.getDepreciationId());
+
         
         return DepreciationDTO.fromEntity(savedDepreciation);
     }
@@ -476,14 +467,12 @@ public class DepreciationService {
         facility.setLastValuationDate(dto.getDepreciationDate());
         facilityRepository.save(facility);
         
-        log.info("감가상각 기록 생성 완료: 시설물 ID {}, 감가상각액 {}", 
-                facility.getFacilityId(), dto.getDepreciationAmount());
+
         
         // 전표 생성
         try {
             voucherService.createDepreciationVoucher(facility, BigDecimal.valueOf(dto.getDepreciationAmount()));
-            log.info("감가상각 전표 생성 완료: 시설물 ID {}, 감가상각액 {}", 
-                    facility.getFacilityId(), dto.getDepreciationAmount());
+
         } catch (Exception e) {
             log.error("감가상각 전표 생성 중 오류 발생: {}", e.getMessage(), e);
             // 전표 생성 실패가 감가상각 처리 자체를 실패시키지 않도록 예외 처리

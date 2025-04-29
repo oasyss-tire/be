@@ -43,8 +43,9 @@ public class VoucherDTO {
     
     // 시설물 정보
     private String facilityManagementNumber;  // 시설물 관리번호
-    private String facilityModelNumber;       // 시설물 모델번호
     private String facilityTypeName;          // 시설물 유형명
+    private String brandCode;                // 브랜드 코드
+    private String brandCodeName;            // 브랜드명
     
     /**
      * 엔티티를 DTO로 변환
@@ -65,9 +66,13 @@ public class VoucherDTO {
                 .facilitySerialNumber(entity.getFacility() != null ? entity.getFacility().getSerialNumber() : null)
                 // 시설물 추가 정보
                 .facilityManagementNumber(entity.getFacility() != null ? entity.getFacility().getManagementNumber() : null)
-                .facilityModelNumber(entity.getFacility() != null ? entity.getFacility().getModelNumber() : null)
                 .facilityTypeName(entity.getFacility() != null && entity.getFacility().getFacilityType() != null ? 
                         entity.getFacility().getFacilityType().getCodeName() : null)
+                // 브랜드 정보 추가
+                .brandCode(entity.getFacility() != null && entity.getFacility().getBrand() != null ? 
+                        entity.getFacility().getBrand().getCodeId() : null)
+                .brandCodeName(entity.getFacility() != null && entity.getFacility().getBrand() != null ? 
+                        entity.getFacility().getBrand().getCodeName() : null)
                 // 기타 정보
                 .facilityTransactionId(entity.getFacilityTransaction() != null ? 
                         entity.getFacilityTransaction().getTransactionId() : null)

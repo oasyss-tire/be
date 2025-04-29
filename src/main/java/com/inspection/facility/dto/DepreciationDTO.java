@@ -21,7 +21,8 @@ public class DepreciationDTO {
     private Long facilityId;
     private String facilityName;
     private String managementNumber;      // 시설물 관리번호
-    private String modelNumber;           // 시설물 모델번호
+    private String brandCode;             // 브랜드 코드
+    private String brandCodeName;         // 브랜드명
     private LocalDateTime depreciationDate;
     private Double previousValue;
     private Double depreciationAmount;
@@ -48,7 +49,8 @@ public class DepreciationDTO {
                 .facilityId(entity.getFacility().getFacilityId())
                 .facilityName(entity.getFacility().getFacilityType().getCodeName())
                 .managementNumber(entity.getFacility().getManagementNumber())
-                .modelNumber(entity.getFacility().getModelNumber())
+                .brandCode(entity.getFacility().getBrand() != null ? entity.getFacility().getBrand().getCodeId() : null)
+                .brandCodeName(entity.getFacility().getBrand() != null ? entity.getFacility().getBrand().getCodeName() : null)
                 .depreciationDate(entity.getDepreciationDate())
                 .previousValue(entity.getPreviousValue())
                 .depreciationAmount(entity.getDepreciationAmount())

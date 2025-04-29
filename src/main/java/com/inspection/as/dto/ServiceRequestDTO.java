@@ -25,7 +25,6 @@ public class ServiceRequestDTO {
     private Long facilityId;              // 시설물 ID
     private String facilityName;          // 시설물명
     private String brandName;             // 브랜드명
-    private String modelNumber;           // 모델번호
     
     // 추가 필드 - 시설물 관련 정보
     private String companyName;           // 매장명
@@ -70,7 +69,6 @@ public class ServiceRequestDTO {
                 .facilityId(entity.getFacility().getFacilityId())
                 .facilityName(entity.getFacility().getFacilityType().getCodeName())
                 .brandName(entity.getFacility().getBrand().getCodeName())
-                .modelNumber(entity.getFacility().getModelNumber())
                 
                 // 추가 필드 - 매장 정보는 상위 계층(서비스)에서 채워줘야 함
                 .companyName(getCompanyName(entity.getFacility()))

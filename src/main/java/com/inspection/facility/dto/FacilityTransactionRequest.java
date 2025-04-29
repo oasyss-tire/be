@@ -31,4 +31,6 @@ public class FacilityTransactionRequest {
     private Long serviceRequestId;            // 관련 AS 요청 ID
     
     private String transactionRef;            // 트랜잭션 참조 번호
+    
+    private String batchId;                   // 배치 ID (동일 작업으로 생성된 트랜잭션 그룹)
 } 

@@ -15,8 +15,6 @@ public class FacilityUpdateRequest {
     
     private String facilityTypeCode;      // 시설물 항목 코드 (Code 테이블 참조)
     
-    private String modelNumber;           // 품목 모델번호 (5600A, 5600X 등)
-    
     private String managementNumber;      // 관리번호 (시설물 식별용)
     
     private String serialNumber;          // 시설물 시리얼 번호

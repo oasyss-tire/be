@@ -19,11 +19,8 @@ public class FacilityBatchCreateRequest {
     @NotBlank(message = "시설물 유형 코드는 필수입니다")
     private String facilityTypeCode;     // 시설물 항목 코드 (Code 테이블 참조)
     
-    @NotBlank(message = "모델번호는 필수입니다")
-    private String modelNumber;          // 품목 모델번호 (5600A, 5600X 등)
     
-    @NotBlank(message = "관리번호 접두사는 필수입니다")
-    private String managementNumberPrefix;  // 관리번호 접두사 (시설물 식별용, 배치 생성시 접두사+순번으로 자동 생성)
+    private String managementNumberPrefix;  // 관리번호 접두사 (사용하지 않으면 자동 생성)
     
     @NotNull(message = "수량은 필수입니다")
     @Min(value = 1, message = "수량은 최소 1 이상이어야 합니다")

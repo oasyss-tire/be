@@ -11,8 +11,8 @@ import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -50,6 +50,7 @@ public class FacilityService {
     private final CompanyRepository companyRepository;
     private final ServiceRequestRepository serviceRequestRepository;
     private final FacilityTransactionService facilityTransactionService;
+    private final FacilityImageService facilityImageService;
     
     /**
      * 모든 시설물 조회
@@ -288,7 +289,6 @@ public class FacilityService {
         }
         
         // 나머지 필드 설정
-        facility.setModelNumber(request.getModelNumber());
         facility.setInstallationDate(request.getInstallationDate());
         facility.setAcquisitionCost(request.getAcquisitionCost());
         facility.setUsefulLifeMonths(request.getUsefulLifeMonths());
@@ -313,21 +313,23 @@ public class FacilityService {
         if (authentication != null && authentication.isAuthenticated() && 
             !"anonymousUser".equals(authentication.getPrincipal())) {
             userId = authentication.getName(); // JWT에서는 getName()이 userId를 반환
-            log.info("현재 로그인 사용자: {}", userId);
+
         } else {
             log.warn("인증된 사용자 정보를 찾을 수 없습니다. 기본값 사용: {}", userId);
         }
         facility.setCreatedBy(userId);
         
         // 시리얼 번호 자동 생성
-        String serialNumber = generateSerialNumber(request.getFacilityTypeCode(), request.getOwnerCompanyId(), request.getModelNumber());
+        String serialNumber = generateSerialNumber(request.getFacilityTypeCode(), request.getOwnerCompanyId());
         facility.setSerialNumber(serialNumber);
         
-        // 관리번호 설정 (제공된 경우 사용, 없으면 시리얼 번호와 동일하게 설정)
+        // 관리번호 설정 (제공된 경우 사용, 없으면 자동 생성)
         if (request.getManagementNumber() != null && !request.getManagementNumber().isBlank()) {
             facility.setManagementNumber(request.getManagementNumber());
         } else {
-            facility.setManagementNumber(serialNumber);
+            // 관리번호 자동 생성
+            String managementNumber = generateManagementNumber(request.getFacilityTypeCode());
+            facility.setManagementNumber(managementNumber);
         }
         
         // 현재 가치는 취득가액으로 설정
@@ -343,9 +345,6 @@ public class FacilityService {
         }
         
         Facility savedFacility = facilityRepository.save(facility);
-        log.info("새 시설물이 생성되었습니다. ID: {}, 모델: {}, 시리얼 번호: {}, 관리 번호: {}", 
-                savedFacility.getFacilityId(), savedFacility.getModelNumber(), 
-                savedFacility.getSerialNumber(), savedFacility.getManagementNumber());
         
         // 입고 트랜잭션 자동 생성
         try {
@@ -358,7 +357,6 @@ public class FacilityService {
                 transactionRequest.setNotes("시설물 최초 등록");
                 
                 facilityTransactionService.processInbound(transactionRequest);
-                log.info("시설물 입고 트랜잭션이 자동으로 생성되었습니다. 시설물 ID: {}", savedFacility.getFacilityId());
             } else {
                 log.warn("위치 회사 정보가 없어 입고 트랜잭션을 생성하지 않았습니다. 시설물 ID: {}", savedFacility.getFacilityId());
             }
@@ -367,14 +365,84 @@ public class FacilityService {
             // 트랜잭션 생성 실패가 시설물 생성 자체를 실패시키지는 않도록 예외 처리
         }
         
+        // QR 코드 생성 추가
+        try {
+            facilityImageService.generateAndSaveQrCode(savedFacility.getFacilityId());
+            log.info("시설물 ID {}에 대한 QR 코드가 생성되었습니다", savedFacility.getFacilityId());
+        } catch (Exception e) {
+            log.error("시설물 QR 코드 생성 중 오류 발생: {}", e.getMessage(), e);
+            // QR 코드 생성 실패가 시설물 생성 자체를 실패시키지는 않도록 예외 처리
+        }
+        
         return convertToDTO(savedFacility);
     }
     
     /**
-     * 시리얼 번호 생성
-     * 형식: [시설물종류코드(4자리)]-[소유회사점번(3자리)]-[UUID 축약형]-[모델번호]-[YYMMDD]
+     * 관리번호 자동 생성
+     * 형식: [시설물타입약자(2자리)]-[생성일(YYYYMMDD)]-[일련번호(3자리)]
+     * 예) 리프트 -> RE-20250424-001
+     * 동시성 문제를 고려하여 구현 (synchronized + 트랜잭션 격리 수준 활용)
      */
-    private String generateSerialNumber(String facilityTypeCode, Long ownerCompanyId, String modelNumber) {
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.SERIALIZABLE)
+    private synchronized String generateManagementNumber(String facilityTypeCode) {
+        // 현재 날짜 형식 YYYYMMDD
+        String dateStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        
+        // 시설물 타입 코드에 따른 약자 매핑
+        String typePrefix = getFacilityTypePrefix(facilityTypeCode);
+        
+        // 오늘 생성된 해당 타입의 시설물 수를 조회하여 일련번호 생성
+        // 락을 획득하여 동시 접근 방지
+        LocalDateTime startOfDay = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime endOfDay = LocalDateTime.now().withHour(23).withMinute(59).withSecond(59).withNano(999999999);
+        
+        // count + 1 값을 가져오기 위해 데이터베이스 쿼리 실행
+        int count = facilityRepository.countByFacilityType_CodeIdAndCreatedAtBetween(facilityTypeCode, startOfDay, endOfDay);
+        
+        // 일련번호 형식: 001, 002, ...
+        String sequenceNumber = String.format("%03d", count + 1);
+        
+        // 관리번호 형식: [시설물타입약자]-[생성일]-[일련번호]
+        String managementNumber = String.format("%s-%s-%s", typePrefix, dateStr, sequenceNumber);
+        
+        // 이미 존재하는지 확인하고, 존재하면 번호 증가
+        while (facilityRepository.existsByManagementNumber(managementNumber)) {
+            count++;
+            sequenceNumber = String.format("%03d", count + 1);
+            managementNumber = String.format("%s-%s-%s", typePrefix, dateStr, sequenceNumber);
+        }
+        
+        return managementNumber;
+    }
+    
+    /**
+     * 시설물 타입 코드에 따른 약자 반환
+     */
+    private String getFacilityTypePrefix(String facilityTypeCode) {
+        if (facilityTypeCode == null) return "UN"; // Unknown
+        
+        switch (facilityTypeCode) {
+            case "002001_0001": return "RE"; // 리프트 (Ramp/lift)
+            case "002001_0002": return "TD"; // 탈부착기 (Tire Detacher)
+            case "002001_0003": return "TB"; // 밸런스기 (Tire Balancer)
+            case "002001_0004": return "AL"; // 얼라이먼트 (Alignment)
+            case "002001_0005": return "TH"; // 타이어 호텔 (Tire Hotel)
+            case "002001_0006": return "AM"; // 에어메이트 (Air Mate)
+            case "002001_0007": return "CP"; // 콤프레샤 (Compressor)
+            case "002001_0008": return "BB"; // 비드부스터 (Bead Booster)
+            case "002001_0009": return "CL"; // 체인리프트 (Chain Lift)
+            case "002001_0010": return "ES"; // 전기시설 (Electrical System)
+            case "002001_0011": return "ET"; // 기타 (Etc)
+            default: return "UN"; // Unknown
+        }
+    }
+    
+    /**
+     * 시리얼 번호 생성
+     * 형식: [시설물종류코드(4자리)]-[소유회사점번(3자리)]-[UUID 축약형]-[YYMMDD]
+     * 기존에 모델번호 필드가 포함되었으나 해당 필드 제거로 인해 형식 변경
+     */
+    private String generateSerialNumber(String facilityTypeCode, Long ownerCompanyId) {
         // 현재 날짜 형식 YYMMDD
         String dateStr = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyMMdd"));
         
@@ -402,8 +470,8 @@ public class FacilityService {
         // 고유한 식별자 생성 (UUID의 처음 8자리만 사용)
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
         
-        // 시리얼 번호 형식: [시설물종류코드(4자리)]-[소유회사점번(3자리)]-[UUID 축약형]-[모델번호]-[YYMMDD]
-        return String.format("%s-%s-%s-%s-%s", typeCode, storeNumber, uniqueId, modelNumber, dateStr);
+        // 시리얼 번호 형식: [시설물종류코드(4자리)]-[소유회사점번(3자리)]-[UUID 축약형]-[YYMMDD]
+        return String.format("%s-%s-%s-%s", typeCode, storeNumber, uniqueId, dateStr);
     }
     
     /**
@@ -477,10 +545,7 @@ public class FacilityService {
         }
         
         // 나머지 필드 수정 (값이 있는 경우만)
-        if (request.getModelNumber() != null) {
-            facility.setModelNumber(request.getModelNumber());
-        }
-        
+
         if (request.getSerialNumber() != null) {
             facility.setSerialNumber(request.getSerialNumber());
         }
@@ -528,7 +593,6 @@ public class FacilityService {
         
         // 저장 및 변환하여 반환
         Facility updatedFacility = facilityRepository.save(facility);
-        log.info("시설물이 수정되었습니다. ID: {}", updatedFacility.getFacilityId());
         
         return convertToDTO(updatedFacility);
     }
@@ -543,7 +607,6 @@ public class FacilityService {
         }
         
         facilityRepository.deleteById(facilityId);
-        log.info("시설물이 삭제되었습니다. ID: {}", facilityId);
     }
     
     /**
@@ -553,12 +616,8 @@ public class FacilityService {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
             
-            // 키워드 검색 (모델번호, 시리얼번호, 관리번호)
+            // 키워드 검색 (시리얼번호, 관리번호)
             if (StringUtils.hasText(request.getKeyword())) {
-                Predicate modelPredicate = criteriaBuilder.like(
-                    criteriaBuilder.lower(root.get("modelNumber")), 
-                    "%" + request.getKeyword().toLowerCase() + "%"
-                );
                 Predicate serialPredicate = criteriaBuilder.like(
                     criteriaBuilder.lower(root.get("serialNumber")), 
                     "%" + request.getKeyword().toLowerCase() + "%"
@@ -567,7 +626,7 @@ public class FacilityService {
                     criteriaBuilder.lower(root.get("managementNumber")), 
                     "%" + request.getKeyword().toLowerCase() + "%"
                 );
-                predicates.add(criteriaBuilder.or(modelPredicate, serialPredicate, managementPredicate));
+                predicates.add(criteriaBuilder.or(serialPredicate, managementPredicate));
             }
             
             // 관리번호 검색
@@ -743,10 +802,7 @@ public class FacilityService {
             throw new IllegalArgumentException("수량은 1 이상이어야 합니다.");
         }
         
-        // 관리번호 접두사 체크
-        if (request.getManagementNumberPrefix() == null || request.getManagementNumberPrefix().trim().isEmpty()) {
-            throw new IllegalArgumentException("관리번호 접두사는 필수입니다.");
-        }
+        // 관리번호 접두사는 이제 선택적
         
         List<FacilityDTO> createdFacilities = new ArrayList<>();
         
@@ -796,7 +852,6 @@ public class FacilityService {
         if (authentication != null && authentication.isAuthenticated() && 
             !"anonymousUser".equals(authentication.getPrincipal())) {
             userId = authentication.getName(); // JWT에서는 getName()이 userId를 반환
-            log.info("현재 로그인 사용자: {}", userId);
         } else {
             log.warn("인증된 사용자 정보를 찾을 수 없습니다. 기본값 사용: {}", userId);
         }
@@ -809,6 +864,10 @@ public class FacilityService {
             warrantyEndDate = request.getWarrantyEndDate();
         }
         
+        // 모든 트랜잭션에 사용할 공통 배치 ID 생성
+        String batchId = UUID.randomUUID().toString();
+        log.info("시설물 배치 생성 시작: 배치 ID={}, 수량={}", batchId, request.getQuantity());
+        
         // 요청된 수량만큼 시설물 생성
         for (int i = 0; i < request.getQuantity(); i++) {
             Facility facility = new Facility();
@@ -819,8 +878,6 @@ public class FacilityService {
             facility.setInstallationType(installationType);
             facility.setStatus(status);
             facility.setDepreciationMethod(depreciationMethod);
-            
-            facility.setModelNumber(request.getModelNumber());
             facility.setInstallationDate(request.getInstallationDate());
             facility.setAcquisitionCost(request.getAcquisitionCost());
             facility.setUsefulLifeMonths(request.getUsefulLifeMonths());
@@ -831,11 +888,26 @@ public class FacilityService {
             facility.setCreatedBy(userId);
             
             // 시리얼 번호 자동 생성 (각 시설물마다 고유한 시리얼 생성)
-            String serialNumber = generateSerialNumber(request.getFacilityTypeCode(), request.getOwnerCompanyId(), request.getModelNumber());
+            String serialNumber = generateSerialNumber(request.getFacilityTypeCode(), request.getOwnerCompanyId());
             facility.setSerialNumber(serialNumber);
             
-            // 관리 번호 설정 (접두사 + 순번)
-            String managementNumber = String.format("%s-%03d", request.getManagementNumberPrefix(), (i + 1));
+            // 관리 번호 설정 (사용자 지정 접두사 또는 자동 생성)
+            String managementNumber;
+            if (request.getManagementNumberPrefix() != null && !request.getManagementNumberPrefix().isBlank()) {
+                // 사용자 지정 접두사 사용 (중복 방지를 위한 로직 추가)
+                String prefix = request.getManagementNumberPrefix();
+                managementNumber = String.format("%s-%03d", prefix, (i + 1));
+                
+                // 중복 검사 및 처리
+                int suffix = i + 1;
+                while (facilityRepository.existsByManagementNumber(managementNumber)) {
+                    suffix++;
+                    managementNumber = String.format("%s-%03d", prefix, suffix);
+                }
+            } else {
+                // 자동 생성된 형식 사용
+                managementNumber = generateManagementNumber(request.getFacilityTypeCode());
+            }
             facility.setManagementNumber(managementNumber);
             
             // 현재 가치는 취득가액으로 설정 (특별히 지정된 경우 제외)
@@ -855,9 +927,6 @@ public class FacilityService {
             Facility savedFacility = facilityRepository.save(facility);
             createdFacilities.add(convertToDTO(savedFacility));
             
-            log.info("배치 내에서 시설물이 생성되었습니다. 순번: {}/{}, ID: {}, 모델: {}, 시리얼 번호: {}, 관리 번호: {}", 
-                    (i + 1), request.getQuantity(), savedFacility.getFacilityId(), 
-                    savedFacility.getModelNumber(), savedFacility.getSerialNumber(), savedFacility.getManagementNumber());
             
             // 입고 트랜잭션 자동 생성
             try {
@@ -867,18 +936,53 @@ public class FacilityService {
                     transactionRequest.setToCompanyId(request.getLocationCompanyId());
                     transactionRequest.setStatusAfterCode(request.getStatusCode());
                     transactionRequest.setNotes("시설물 배치 생성 - 최초 등록");
+                    transactionRequest.setBatchId(batchId); // 공통 배치 ID 설정
                     
                     facilityTransactionService.processInbound(transactionRequest);
-                    log.info("시설물 입고 트랜잭션이 자동으로 생성되었습니다. 시설물 ID: {}, 순번: {}/{}", 
-                            savedFacility.getFacilityId(), (i + 1), request.getQuantity());
                 }
             } catch (Exception e) {
                 log.error("시설물 입고 트랜잭션 생성 중 오류 발생: {}, 시설물 ID: {}", e.getMessage(), savedFacility.getFacilityId(), e);
                 // 트랜잭션 생성 실패가 시설물 생성 자체를 실패시키지는 않도록 예외 처리
             }
+            
+            // QR 코드 생성 추가
+            try {
+                facilityImageService.generateAndSaveQrCode(savedFacility.getFacilityId());
+                log.info("시설물 ID {}에 대한 QR 코드가 생성되었습니다. 순번: {}/{}", 
+                        savedFacility.getFacilityId(), (i + 1), request.getQuantity());
+            } catch (Exception e) {
+                log.error("시설물 QR 코드 생성 중 오류 발생: {}, 시설물 ID: {}", e.getMessage(), savedFacility.getFacilityId(), e);
+                // QR 코드 생성 실패가 시설물 생성 자체를 실패시키지는 않도록 예외 처리
+            }
+        }
+
+        log.info("시설물 배치 생성 완료. 총 {}개 생성됨, 배치 ID: {}", createdFacilities.size(), batchId);
+        return createdFacilities;
+    }
+
+    /**
+     * 시설물 유형에 해당하는 브랜드 코드 목록 조회
+     * @param facilityTypeCode 시설물 유형 코드 (002001_0001 등)
+     * @return 해당 시설물 유형에 대한 브랜드 코드 목록
+     */
+    @Transactional(readOnly = true)
+    public List<com.inspection.dto.CodeDTO> getBrandCodesByFacilityType(String facilityTypeCode) {
+        // 시설물 코드에서 숫자 부분 추출 (002001_0001 -> 0001)
+        String facilityNum = "0001"; // 기본값
+        if (facilityTypeCode != null && facilityTypeCode.contains("_")) {
+            facilityNum = facilityTypeCode.split("_")[1];
         }
         
-        log.info("시설물 배치 생성 완료. 총 {}개 생성됨", createdFacilities.size());
-        return createdFacilities;
+        // 브랜드 그룹 ID 조합: 002008 + 숫자부분 (001 ~ 011) -> 002008001 (리프트 품목)
+        // facilityNum에서 앞의 '0'을 제거하고 숫자만 추출
+        int facilityNumInt = Integer.parseInt(facilityNum);
+        String brandGroupId = String.format("002008%03d", facilityNumInt);
+
+        
+        // 해당 그룹에 속한 모든 브랜드 코드 조회
+        List<Code> brandCodes = codeRepository.findByCodeGroupGroupId(brandGroupId);
+        
+        // Code 엔티티를 CodeDTO로 변환하여 반환
+        return com.inspection.dto.CodeDTO.fromEntities(brandCodes);
     }
 } 

@@ -34,6 +34,9 @@ public class FacilityTransaction {
     @Column(name = "transaction_id")
     private Long transactionId; // 트랜잭션 ID (PK)
     
+    @Column(name = "batch_id", length = 36)
+    private String batchId; // 배치 ID (UUID 형식) - 같은 작업 단위 트랜잭션 그룹화
+    
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "facility_id", nullable = false)
     private Facility facility; // 트랜잭션 대상 시설물
@@ -84,6 +87,12 @@ public class FacilityTransaction {
     
     @Column(name = "transaction_ref", length = 100)
     private String transactionRef; // 트랜잭션 참조 번호 (외부 시스템 연동용)
+    
+    @Column(name = "is_cancelled", nullable = false)
+    private Boolean isCancelled = false; // 취소 여부
+    
+    @Column(name = "cancellation_reason", length = 500)
+    private String cancellationReason; // 취소 사유
     
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)

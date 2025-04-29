@@ -1,10 +1,17 @@
 package com.inspection.facility.service;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,7 +59,6 @@ public class FacilityImageService {
         try {
             this.storageLocation = Paths.get(uploadPath).toAbsolutePath().normalize();
             Files.createDirectories(this.storageLocation);
-            log.info("시설물 이미지 저장 디렉토리 초기화 완료: {}", this.storageLocation);
         } catch (IOException e) {
             log.error("시설물 이미지 저장 디렉토리 생성 실패", e);
             throw new RuntimeException("시설물 이미지 저장 디렉토리를 생성할 수 없습니다.", e);
@@ -128,8 +134,7 @@ public class FacilityImageService {
             .build();
         
         Image savedImage = imageRepository.save(image);
-        log.info("시설물 이미지가 업로드되었습니다. 이미지 ID: {}, 파일명: {}", savedImage.getImageId(), fileName);
-        
+
         return convertToDTO(savedImage);
     }
     
@@ -164,8 +169,7 @@ public class FacilityImageService {
         }
         
         Image updatedImage = imageRepository.save(image);
-        log.info("시설물 이미지가 수정되었습니다. 이미지 ID: {}", imageId);
-        
+
         return convertToDTO(updatedImage);
     }
     
@@ -183,7 +187,6 @@ public class FacilityImageService {
         if (deleted) {
             // DB에서 이미지 삭제
             imageRepository.delete(image);
-            log.info("시설물 이미지가 삭제되었습니다. 이미지 ID: {}", imageId);
         } else {
             // 파일 삭제 실패 시 비활성화 처리
             image.setActive(false);
@@ -204,7 +207,6 @@ public class FacilityImageService {
         }
         
         imageRepository.deleteByFacilityFacilityId(facilityId);
-        log.info("시설물의 모든 이미지가 삭제되었습니다. 시설물 ID: {}", facilityId);
     }
     
     /**
@@ -227,8 +229,7 @@ public class FacilityImageService {
             // 파일 저장
             Path targetLocation = this.storageLocation.resolve(newFilename);
             Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-            
-            log.info("시설물 이미지 파일 저장 완료: {}, 저장명: {}", originalFilename, newFilename);
+
             return newFilename;
         } catch (IOException ex) {
             log.error("시설물 이미지 파일 저장 실패", ex);
@@ -324,5 +325,87 @@ public class FacilityImageService {
         }
         
         return result;
+    }
+    
+    /**
+     * 시설물 QR 코드 이미지 생성 및 저장
+     */
+    @Transactional
+    public FacilityImageDTO generateAndSaveQrCode(Long facilityId) {
+        log.info("시설물 ID {}에 대한 QR 코드 생성 시작", facilityId);
+        
+        try {
+            // 시설물 조회
+            Facility facility = facilityRepository.findById(facilityId)
+                    .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + facilityId));
+            
+            // 이미지 타입 조회 (QR 코드 타입)
+            String qrCodeTypeCode = "002005_0005"; // QR 코드 타입 코드
+            Code qrCodeType = codeRepository.findById(qrCodeTypeCode)
+                    .orElseThrow(() -> new EntityNotFoundException("QR 코드 이미지 타입을 찾을 수 없습니다: " + qrCodeTypeCode));
+            
+            // 해당 시설물에 이미 QR 코드가 있는지 확인
+            List<Image> existingQrCodes = imageRepository.findByFacilityIdInAndImageTypeCodeAndActiveTrue(
+                    List.of(facilityId), qrCodeTypeCode);
+            
+            if (!existingQrCodes.isEmpty()) {
+                log.info("시설물 ID {}에 대한 QR 코드가 이미 존재합니다. 기존 QR 코드를 반환합니다.", facilityId);
+                return convertToDTO(existingQrCodes.get(0));
+            }
+            
+            // QR 코드 URL 생성 (상세 페이지 URL)
+            String facilityDetailUrl = "https://tirebank.jebee.net//facility-detail/" + facilityId;
+            String encodedUrl = URLEncoder.encode(facilityDetailUrl, StandardCharsets.UTF_8.toString());
+            String qrApiUrl = "https://quickchart.io/qr?text=" + encodedUrl;
+            
+            log.debug("QR 코드 API URL: {}", qrApiUrl);
+            
+            // QR 이미지 다운로드
+            URL url = new URL(qrApiUrl);
+            URLConnection connection = url.openConnection();
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            
+            // 현재 날짜 및 시간을 한국식 형식으로 변환 (예: 20230801_153045)
+            String dateTimeFormat = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            
+            // 시설물 관리번호 가져오기 (없는 경우 ID 사용)
+            String managementNumber = facility.getManagementNumber();
+            if (managementNumber == null || managementNumber.isEmpty()) {
+                managementNumber = "ID" + facilityId;
+            } else {
+                // 관리번호에 있을 수 있는 특수문자 제거 (파일명에 사용 불가한 문자 제거)
+                managementNumber = managementNumber.replaceAll("[\\\\/:*?\"<>|]", "_");
+            }
+            
+            // 파일명 생성 (관리번호_날짜시간.png)
+            String fileName = "QR_" + managementNumber + "_" + dateTimeFormat + ".png";
+            Path targetLocation = this.storageLocation.resolve(fileName);
+            
+            // 이미지 저장
+            try (InputStream inputStream = connection.getInputStream()) {
+                Files.copy(inputStream, targetLocation, StandardCopyOption.REPLACE_EXISTING);
+            }
+            
+            log.info("QR 코드 이미지가 저장되었습니다: {}", targetLocation);
+            
+            // 이미지 엔티티 생성 및 저장 (서브폴더 경로 없이 파일명만 저장)
+            Image qrImage = Image.builder()
+                    .facility(facility)
+                    .imageType(qrCodeType)
+                    .imageUrl(fileName)
+                    .active(true)
+                    .uploadBy("SYSTEM")
+                    .build();
+            
+            Image savedImage = imageRepository.save(qrImage);
+            log.info("QR 코드 이미지 정보가 DB에 저장되었습니다. 이미지 ID: {}", savedImage.getImageId());
+            
+            return convertToDTO(savedImage);
+            
+        } catch (Exception e) {
+            log.error("QR 코드 생성 중 오류 발생: {}", e.getMessage(), e);
+            throw new RuntimeException("QR 코드 생성 중 오류가 발생했습니다: " + e.getMessage(), e);
+        }
     }
 } 

@@ -31,4 +31,6 @@ public class RentalTransactionRequest {
     private String statusAfterCode;           // 대여 후 상태 코드 (기본값: 임대중)
     
     private String transactionRef;            // 트랜잭션 참조 번호
+    
+    private String batchId;                   // 배치 ID (동일 작업으로 생성된 트랜잭션 그룹)
 } 

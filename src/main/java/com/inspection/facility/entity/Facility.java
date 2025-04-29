@@ -46,9 +46,6 @@ public class Facility {
     @JoinColumn(name = "facility_type_code", nullable = false)
     private Code facilityType; // 시설물 항목 코드 (Code 테이블 참조)
     
-    @Column(name = "model_number")
-    private String modelNumber; // 품목 모델번호 (5600A, 5600X 등)
-    
     @Column(name = "serial_number")
     private String serialNumber; // 시설물 시리얼 번호
     
@@ -103,4 +100,17 @@ public class Facility {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt; // 수정날짜
+    
+    // 폐기 관련 정보 추가
+    @Column(name = "is_active", nullable = false)
+    private boolean isActive = true; // 활성 상태 여부 (폐기되면 false)
+    
+    @Column(name = "discard_reason", length = 500)
+    private String discardReason; // 폐기 사유
+    
+    @Column(name = "discarded_at")
+    private LocalDateTime discardedAt; // 폐기 일시
+    
+    @Column(name = "discarded_by", length = 50)
+    private String discardedBy; // 폐기 처리자 ID
 }

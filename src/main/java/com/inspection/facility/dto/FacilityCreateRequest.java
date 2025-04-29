@@ -18,12 +18,9 @@ public class FacilityCreateRequest {
     
     @NotBlank(message = "시설물 유형 코드는 필수입니다")
     private String facilityTypeCode;     // 시설물 항목 코드 (Code 테이블 참조)
+            // 품목 모델번호 (5600A, 5600X 등)
     
-    @NotBlank(message = "모델번호는 필수입니다")
-    private String modelNumber;          // 품목 모델번호 (5600A, 5600X 등)
-    
-    @NotBlank(message = "관리번호는 필수입니다")
-    private String managementNumber;     // 관리번호 (시설물 식별용)
+    private String managementNumber;     // 관리번호 (시설물 식별용, 입력하지 않으면 자동생성)
     
     private String serialNumber;         // 시설물 시리얼 번호
     

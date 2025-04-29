@@ -1,6 +1,5 @@
 package com.inspection.facility.controller;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -112,7 +111,6 @@ public class FacilityController {
      */
     @PostMapping("/batch")
     public ResponseEntity<List<FacilityDTO>> createFacilityBatch(@Valid @RequestBody FacilityBatchCreateRequest request) {
-        log.info("시설물 배치 생성 요청 - 수량: {}, 모델: {}", request.getQuantity(), request.getModelNumber());
         List<FacilityDTO> createdFacilities = facilityService.createFacilityBatch(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdFacilities);
     }
@@ -135,5 +133,13 @@ public class FacilityController {
     public ResponseEntity<Void> deleteFacility(@PathVariable Long facilityId) {
         facilityService.deleteFacility(facilityId);
         return ResponseEntity.noContent().build();
+    }
+    
+    /**
+     * 시설물 유형에 따른 브랜드 코드 조회
+     */
+    @GetMapping("/facility-type/{facilityTypeCode}/brands")
+    public ResponseEntity<List<com.inspection.dto.CodeDTO>> getBrandsByFacilityType(@PathVariable String facilityTypeCode) {
+        return ResponseEntity.ok(facilityService.getBrandCodesByFacilityType(facilityTypeCode));
     }
 } 

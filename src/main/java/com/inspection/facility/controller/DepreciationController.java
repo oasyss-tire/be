@@ -115,7 +115,7 @@ public class DepreciationController {
     @PostMapping
     public ResponseEntity<DepreciationDTO> createDepreciation(@Valid @RequestBody CreateDepreciationDTO dto) {
         DepreciationDTO createdDepreciation = depreciationService.createDepreciation(dto);
-        log.info("감가상각 이력이 생성되었습니다. ID: {}", createdDepreciation.getDepreciationId());
+
         return ResponseEntity.status(HttpStatus.CREATED).body(createdDepreciation);
     }
     
@@ -141,7 +141,7 @@ public class DepreciationController {
     @PostMapping("/facility/{facilityId}/process")
     public ResponseEntity<DepreciationDTO> processDepreciationForFacility(@PathVariable Long facilityId) {
         DepreciationDTO result = depreciationService.processDepreciationForFacility(facilityId);
-        log.info("시설물 ID {}에 대한 감가상각이 처리되었습니다.", facilityId);
+
         return ResponseEntity.status(HttpStatus.CREATED).body(result);
     }
     
@@ -151,7 +151,7 @@ public class DepreciationController {
     @PostMapping("/process/monthly")
     public ResponseEntity<List<DepreciationDTO>> processMonthlyDepreciationForAllFacilities() {
         List<DepreciationDTO> results = depreciationService.processMonthlyDepreciationForAllFacilities();
-        log.info("모든 시설물에 대한 월별 감가상각이 처리되었습니다. 처리된 시설물 수: {}", results.size());
+
         return ResponseEntity.status(HttpStatus.CREATED).body(results);
     }
 } 

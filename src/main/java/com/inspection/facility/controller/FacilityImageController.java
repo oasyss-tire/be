@@ -39,7 +39,7 @@ public class FacilityImageController {
      */
     @GetMapping("/facility/{facilityId}")
     public ResponseEntity<List<FacilityImageDTO>> getFacilityImages(@PathVariable Long facilityId) {
-        log.info("시설물 이미지 목록 조회 요청 - 시설물 ID: {}", facilityId);
+
         List<FacilityImageDTO> images = facilityImageService.getFacilityImages(facilityId);
         return ResponseEntity.ok(images);
     }
@@ -49,7 +49,7 @@ public class FacilityImageController {
      */
     @GetMapping("/{imageId}")
     public ResponseEntity<FacilityImageDTO> getFacilityImage(@PathVariable Long imageId) {
-        log.info("시설물 이미지 상세 조회 요청 - 이미지 ID: {}", imageId);
+
         FacilityImageDTO image = facilityImageService.getFacilityImage(imageId);
         return ResponseEntity.ok(image);
     }
@@ -59,7 +59,7 @@ public class FacilityImageController {
      */
     @GetMapping("/download/{fileName:.+}")
     public ResponseEntity<Resource> downloadFacilityImage(@PathVariable String fileName, HttpServletRequest request) {
-        log.info("시설물 이미지 다운로드 요청 - 파일명: {}", fileName);
+
         
         Resource resource = facilityImageService.loadFacilityImageFile(fileName);
         
@@ -91,8 +91,7 @@ public class FacilityImageController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "imageTypeCode", defaultValue = "IMG_TYPE_01") String imageTypeCode,
             @RequestParam(value = "uploadBy", required = false) String uploadBy) {
-        
-        log.info("시설물 이미지 업로드 요청 - 시설물 ID: {}, 이미지 유형: {}", facilityId, imageTypeCode);
+
         
         if (file.isEmpty()) {
             log.warn("시설물 이미지 업로드 실패 - 빈 파일");
@@ -112,8 +111,7 @@ public class FacilityImageController {
             @RequestParam(value = "file", required = false) MultipartFile file,
             @RequestParam(value = "imageTypeCode", required = false) String imageTypeCode,
             @RequestParam(value = "updatedBy", required = false) String updatedBy) {
-        
-        log.info("시설물 이미지 수정 요청 - 이미지 ID: {}", imageId);
+
         
         FacilityImageDTO updatedImage = facilityImageService.updateFacilityImage(imageId, file, imageTypeCode, updatedBy);
         return ResponseEntity.ok(updatedImage);
@@ -124,7 +122,7 @@ public class FacilityImageController {
      */
     @DeleteMapping("/{imageId}")
     public ResponseEntity<Void> deleteFacilityImage(@PathVariable Long imageId) {
-        log.info("시설물 이미지 삭제 요청 - 이미지 ID: {}", imageId);
+
         facilityImageService.deleteFacilityImage(imageId);
         return ResponseEntity.noContent().build();
     }
@@ -134,7 +132,7 @@ public class FacilityImageController {
      */
     @DeleteMapping("/facility/{facilityId}")
     public ResponseEntity<Void> deleteAllFacilityImages(@PathVariable Long facilityId) {
-        log.info("시설물의 모든 이미지 삭제 요청 - 시설물 ID: {}", facilityId);
+
         facilityImageService.deleteAllFacilityImages(facilityId);
         return ResponseEntity.noContent().build();
     }
@@ -144,7 +142,7 @@ public class FacilityImageController {
      */
     @GetMapping("/front")
     public ResponseEntity<List<FacilityImageDTO>> getAllFrontImages() {
-        log.info("모든 시설물의 정면 이미지 조회 요청");
+
         List<FacilityImageDTO> frontImages = facilityImageService.getAllFrontImages();
         return ResponseEntity.ok(frontImages);
     }
@@ -155,7 +153,7 @@ public class FacilityImageController {
     @PostMapping("/front/by-facilities")
     public ResponseEntity<Map<Long, FacilityImageDTO>> getFrontImagesByFacilityIds(
             @RequestBody List<Long> facilityIds) {
-        log.info("특정 시설물 ID 목록({})의 정면 이미지 조회 요청", facilityIds.size());
+
         Map<Long, FacilityImageDTO> frontImages = facilityImageService.getFrontImagesByFacilityIds(facilityIds);
         return ResponseEntity.ok(frontImages);
     }
@@ -165,7 +163,7 @@ public class FacilityImageController {
      */
     @GetMapping("/view/{fileName:.+}")
     public ResponseEntity<Resource> viewFacilityImage(@PathVariable String fileName, HttpServletRequest request) {
-        log.info("시설물 이미지 직접 조회 요청 - 파일명: {}", fileName);
+
         
         Resource resource = facilityImageService.loadFacilityImageFile(fileName);
         
@@ -186,5 +184,15 @@ public class FacilityImageController {
                 .contentType(MediaType.parseMediaType(contentType))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
                 .body(resource);
+    }
+
+    /**
+     * 시설물 QR 코드 생성
+     */
+    @PostMapping("/qrcode/facility/{facilityId}")
+    public ResponseEntity<FacilityImageDTO> generateQrCode(@PathVariable Long facilityId) {
+        log.info("시설물 ID {}에 대한 QR 코드 생성 요청", facilityId);
+        FacilityImageDTO qrCodeImage = facilityImageService.generateAndSaveQrCode(facilityId);
+        return ResponseEntity.ok(qrCodeImage);
     }
 } 

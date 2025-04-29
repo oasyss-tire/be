@@ -13,7 +13,6 @@ public class FacilitySearchRequest {
     private String keyword;                // 키워드 검색 (모델번호, 시리얼번호, 관리번호에 적용)
     private String managementNumber;       // 관리번호 검색
     private String serialNumber;           // 시리얼번호 검색
-    private String modelNumber;            // 모델번호 검색
     private String brandCode;              // 브랜드 코드
     private String facilityTypeCode;       // 시설물 유형 코드
     private String statusCode;             // 상태 코드

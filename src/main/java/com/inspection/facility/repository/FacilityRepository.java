@@ -45,12 +45,6 @@ public interface FacilityRepository extends JpaRepository<Facility, Long>, JpaSp
     // 설치 유형별 시설물 조회
     List<Facility> findByInstallationType(Code installationType);
     
-    // 모델번호별 시설물 조회
-    List<Facility> findByModelNumber(String modelNumber);
-    
-    // 모델번호 검색 조회
-    List<Facility> findByModelNumberContaining(String modelNumber);
-    
     // 시리얼번호별 시설물 조회 (중복체크 용도)
     Optional<Facility> findBySerialNumber(String serialNumber);
     
@@ -82,16 +76,16 @@ public interface FacilityRepository extends JpaRepository<Facility, Long>, JpaSp
     List<Facility> findByOwnerCompanyIdAndBrand(Long ownerCompanyId, Code brand);
     
     // 시설물명에 특정 키워드가 포함된 시설물 조회 (JPQL 사용)
-    @Query("SELECT f FROM Facility f WHERE f.modelNumber LIKE %:keyword% OR f.serialNumber LIKE %:keyword% OR f.managementNumber LIKE %:keyword%")
+    @Query("SELECT f FROM Facility f WHERE f.serialNumber LIKE %:keyword% OR f.managementNumber LIKE %:keyword%")
     List<Facility> searchByKeyword(@Param("keyword") String keyword);
     
     // 위치 회사 주소에 특정 키워드가 포함된 시설물 조회
     @Query("SELECT f FROM Facility f JOIN f.locationCompany lc WHERE lc.address LIKE %:locationKeyword%")
     List<Facility> findByLocationCompanyAddressContaining(@Param("locationKeyword") String locationKeyword);
     
-    // 키워드로 검색 (모델번호, 시리얼번호, 관리번호, 위치/소유 회사)
+    // 키워드로 검색 (시리얼번호, 관리번호, 위치/소유 회사)
     @Query("SELECT f FROM Facility f WHERE " +
-           "(:keyword IS NULL OR f.modelNumber LIKE %:keyword% OR f.serialNumber LIKE %:keyword% OR f.managementNumber LIKE %:keyword%) AND " +
+           "(:keyword IS NULL OR f.serialNumber LIKE %:keyword% OR f.managementNumber LIKE %:keyword%) AND " +
            "(:locationCompanyId IS NULL OR f.locationCompany.id = :locationCompanyId) AND " +
            "(:ownerCompanyId IS NULL OR f.ownerCompany.id = :ownerCompanyId)")
     Page<Facility> searchWithCompanies(
@@ -103,7 +97,7 @@ public interface FacilityRepository extends JpaRepository<Facility, Long>, JpaSp
     
     // 간단한 키워드 검색
     @Query("SELECT f FROM Facility f WHERE " +
-           "(:keyword IS NULL OR f.modelNumber LIKE %:keyword% OR f.serialNumber LIKE %:keyword% OR f.managementNumber LIKE %:keyword%) AND " +
+           "(:keyword IS NULL OR f.serialNumber LIKE %:keyword% OR f.managementNumber LIKE %:keyword%) AND " +
            "(:companyId IS NULL OR f.locationCompany.id = :companyId OR f.ownerCompany.id = :companyId)")
     Page<Facility> search(
         @Param("keyword") String keyword,
@@ -131,4 +125,7 @@ public interface FacilityRepository extends JpaRepository<Facility, Long>, JpaSp
            "AND f.depreciationMethod IS NOT NULL " + // 감가상각 방법이 설정됨
            "AND f.usefulLifeMonths > 0") // 내용연수가 설정됨
     List<Facility> findFacilitiesForDepreciation(@Param("processedIds") List<Long> processedFacilityIds);
+    
+    // 특정 날짜 범위와 시설물 타입별 생성된 시설물 수 카운트
+    int countByFacilityType_CodeIdAndCreatedAtBetween(String facilityTypeCode, LocalDateTime startDate, LocalDateTime endDate);
 } 
