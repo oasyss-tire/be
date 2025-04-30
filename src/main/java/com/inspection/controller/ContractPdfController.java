@@ -486,8 +486,17 @@ public class ContractPdfController {
             
             String participantName = participant.getName().replaceAll("[^\\p{L}\\p{N}]", "_"); // 특수문자 제거
             
-            // 새로운 서명된 PDF ID 생성: 타임스탬프_SIGNED_계약번호_원본파일명_참여자이름.pdf
-            String signedPdfId = timestamp + "_SIGNED_" + contractNumber + "_" + originalFileName + "_" + participantName + ".pdf";
+            // 원본파일명에 계약번호가 이미 포함되어 있는지 확인하여 중복을 방지
+            String signedPdfId;
+            if (originalFileName.contains(contractNumber)) {
+                // 계약번호가 이미 포함되어 있는 경우 제외
+                signedPdfId = timestamp + "_SIGNED_" + originalFileName + "_" + participantName + ".pdf";
+                log.info("원본파일명에 계약번호가 이미 포함되어 있어 중복 제거: {}", signedPdfId);
+            } else {
+                // 계약번호가 포함되지 않은 경우 추가
+                signedPdfId = timestamp + "_SIGNED_" + contractNumber + "_" + originalFileName + "_" + participantName + ".pdf";
+                log.info("계약번호 추가: {}", signedPdfId);
+            }
             
             log.info("서명된 PDF 파일명 생성: {}", signedPdfId);
             
@@ -516,10 +525,10 @@ public class ContractPdfController {
             
             // 8. PDF 하단에 서명 시간 및 시리얼 넘버 추가
             String timeInfo = "서명 완료 시간: " + signedTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            String serialInfo = "시리얼 넘버: " + serialNumber;
+            String contractNumberInfo = "계약 번호: " + contractNumber;
             processedPdf = pdfProcessingService.addSignatureTimeToPdf(
                 processedPdf, 
-                timeInfo + "    " + serialInfo
+                timeInfo + "    " + contractNumberInfo
             );
             
             // 10. PDF 암호화 (필요한 경우)
@@ -990,15 +999,27 @@ public class ContractPdfController {
             // 새로운 서명된 PDF 파일명 생성
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
             
-            // 계약번호는 파일명에서 추출하지 않고, 계약 객체에서 직접 가져옴
+            // 원본 PDF ID에서 정보 추출
+            String originalFileName = extractOriginalFileName(pdfFilePath);
+            
+            // 계약 번호 추출 - 파일명에서 추출 실패 시 계약 객체에서 직접 가져옴
             String contractNumber = participant.getContract().getContractNumber();
             
-            String originalFileName = extractOriginalFileName(pdfFilePath);
             String participantName = participant.getName().replaceAll("[^\\p{L}\\p{N}]", "_"); // 특수문자 제거
             
-            // 새로운 형식으로 서명된 PDF 파일명 생성
-            String signedPdfFileName = timestamp + "_SIGNED_" + contractNumber + "_" + originalFileName + "_" + participantName + ".pdf";
-            log.info("새로운 서명된 PDF 파일명 생성: {}", signedPdfFileName);
+            // 원본파일명에 계약번호가 이미 포함되어 있는지 확인하여 중복을 방지
+            String signedPdfId;
+            if (originalFileName.contains(contractNumber)) {
+                // 계약번호가 이미 포함되어 있는 경우 제외
+                signedPdfId = timestamp + "_SIGNED_" + originalFileName + "_" + participantName + ".pdf";
+                log.info("원본파일명에 계약번호가 이미 포함되어 있어 중복 제거: {}", signedPdfId);
+            } else {
+                // 계약번호가 포함되지 않은 경우 추가
+                signedPdfId = timestamp + "_SIGNED_" + contractNumber + "_" + originalFileName + "_" + participantName + ".pdf";
+                log.info("계약번호 추가: {}", signedPdfId);
+            }
+            
+            log.info("서명된 PDF 파일명 생성: {}", signedPdfId);
             
             String fullPdfPath = uploadPath + "/" + pdfFilePath;
             File pdfFile = new File(fullPdfPath);
@@ -1014,7 +1035,7 @@ public class ContractPdfController {
             }
             
             // 서명된 PDF 저장 경로
-            String signedPdfPath = uploadPath + "/signed/" + signedPdfFileName;
+            String signedPdfPath = uploadPath + "/signed/" + signedPdfId;
             
             // 계약별 비밀번호 생성 또는 재사용
             String password;
@@ -1085,11 +1106,11 @@ public class ContractPdfController {
             // ParticipantTemplateMapping 업데이트
             mapping.setSigned(true);
             mapping.setSignedAt(LocalDateTime.now());
-            mapping.setSignedPdfId(signedPdfFileName);
+            mapping.setSignedPdfId(signedPdfId);
             mapping.setDocumentPassword(encryptionUtil.encrypt(password)); // 암호화하여 저장
             
             templateMappingRepository.save(mapping);
-            log.info("Updated template mapping with signed PDF ID and password: {}", signedPdfFileName);
+            log.info("Updated template mapping with signed PDF ID and password: {}", signedPdfId);
             
             // 참여자의 이메일이 있으면 비밀번호 이메일 발송
             // 이미 보낸 비밀번호는 다시 보내지 않도록 처리
@@ -1108,7 +1129,7 @@ public class ContractPdfController {
                             decryptedEmail,
                             participant.getName(),
                             password,
-                            signedPdfFileName
+                            signedPdfId
                         );
                         
                         // 이메일 발송 표시 (캐시에 저장)
@@ -1125,7 +1146,7 @@ public class ContractPdfController {
                 }
             }
             
-            log.info("서명된 PDF 저장 완료 - 참여자: {}, 파일: {}", participant.getName(), signedPdfFileName);
+            log.info("서명된 PDF 저장 완료 - 참여자: {}, 파일: {}", participant.getName(), signedPdfId);
         } catch (Exception e) {
             log.error("서명된 PDF 저장 실패: {}", e.getMessage(), e);
             throw new RuntimeException("서명된 PDF 저장 중 오류 발생: " + e.getMessage(), e);

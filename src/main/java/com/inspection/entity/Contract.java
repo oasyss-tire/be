@@ -21,7 +21,10 @@ import lombok.Setter;
 @Entity
 @Getter @Setter
 @NoArgsConstructor
-public class Contract {
+public class Contract {  // 계약 테이블 (계약정보)
+
+
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

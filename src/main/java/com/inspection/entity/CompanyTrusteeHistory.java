@@ -82,6 +82,11 @@ public class CompanyTrusteeHistory {
     
     @Column
     private LocalDate insuranceEndDate;   // 하자보증증권 보험종료일
+
+    // 사용자 ID 추가
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;               // 연결된 사용자
     
     // 추가 관리 필드
     @Column(length = 50)

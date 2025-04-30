@@ -200,6 +200,9 @@ public class SignatureController {
             contractData.put("statusName", contract.getStatusCode() != null ? 
                 contract.getStatusCode().getCodeName() : null);
             contractData.put("createdAt", contract.getCreatedAt());
+            // 하자보증증권 정보 추가
+            contractData.put("insuranceStartDate", contract.getInsuranceStartDate());
+            contractData.put("insuranceEndDate", contract.getInsuranceEndDate());
             
             // 서명된 PDF 정보
             List<Map<String, Object>> templatePdfs = new ArrayList<>();

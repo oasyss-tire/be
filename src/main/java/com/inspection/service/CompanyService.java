@@ -16,6 +16,7 @@ import com.inspection.dto.UserResponseDTO;
 import com.inspection.entity.Company;
 import com.inspection.entity.CompanyImage;
 import com.inspection.entity.CompanyTrusteeHistory;
+import com.inspection.entity.Role;
 import com.inspection.entity.User;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.CompanyTrusteeHistoryRepository;
@@ -32,6 +33,7 @@ import org.springframework.util.StringUtils;
 import com.inspection.dto.TrusteeChangeRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +48,7 @@ public class CompanyService {
     private final ObjectMapper objectMapper;
     private final ContractService contractService;
     private final TrusteeService trusteeService;
+    private final PasswordEncoder passwordEncoder;
     
     /**
      * 새로운 회사를 생성합니다.
@@ -78,6 +81,12 @@ public class CompanyService {
         // Company 정보를 CompanyTrusteeHistory에 복사
         trusteeHistory.copyFromCompany(savedCompany);
         
+        // 수탁자 사용자 계정 자동 생성 및 연결
+        if (savedCompany.getTrusteeCode() != null && !savedCompany.getTrusteeCode().isEmpty()) {
+            User user = createTrusteeUser(savedCompany);
+            trusteeHistory.setUser(user);
+        }
+        
         // 수탁자 이력 저장
         trusteeHistoryRepository.save(trusteeHistory);
         
@@ -87,6 +96,43 @@ public class CompanyService {
                 savedCompany.getCreatedBy());
                 
         return CompanyDTO.fromEntity(savedCompany);
+    }
+    
+    /**
+     * 수탁사업자를 위한 사용자 계정을 자동 생성합니다.
+     */
+    private User createTrusteeUser(Company company) {
+        // 이미 동일한 userId를 가진 사용자가 있는지 확인
+        String userId = company.getTrusteeCode();
+        if (userRepository.existsByUserId(userId)) {
+            log.warn("이미 존재하는 사용자 ID입니다: {}", userId);
+            return userRepository.findByUserId(userId).orElse(null);
+        }
+        
+        // 비밀번호 자동 생성: trusteeCode + @123
+        String initialPassword = "tb" + userId + "!@";
+        
+        User user = new User();
+        user.setUserId(userId);
+        user.setPassword(passwordEncoder.encode(initialPassword));
+        user.setRole(Role.USER);
+        user.setUserName(company.getRepresentativeName());
+        user.setActive(true);
+        user.setCompany(company);
+        
+        // 개인정보 암호화
+        if (company.getEmail() != null && !company.getEmail().isEmpty()) {
+            user.setEmail(encryptionUtil.encrypt(company.getEmail()));
+        }
+        
+        if (company.getPhoneNumber() != null && !company.getPhoneNumber().isEmpty()) {
+            user.setPhoneNumber(encryptionUtil.encrypt(company.getPhoneNumber()));
+        }
+        
+        User savedUser = userRepository.save(user);
+        log.info("수탁사업자 사용자 계정 자동 생성 완료: {}, 회사: {}", userId, company.getCompanyName());
+        
+        return savedUser;
     }
     
     // 매장번호 자동생성

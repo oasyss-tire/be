@@ -31,4 +31,23 @@ public interface ContractEventLogRepository extends JpaRepository<ContractEventL
     
     // 기간별 이력 조회
     List<ContractEventLog> findByEventTimeBetweenOrderByEventTimeDesc(LocalDateTime startTime, LocalDateTime endTime);
+    
+    // 이벤트 타입 코드 ID로 이력 조회
+    @Query("SELECT l FROM ContractEventLog l WHERE l.eventTypeCode.id = :eventTypeCodeId ORDER BY l.eventTime DESC")
+    List<ContractEventLog> findByEventTypeCodeIdOrderByEventTimeDesc(@Param("eventTypeCodeId") String eventTypeCodeId);
+    
+    // 복합 조건 이력 조회 (페이징 처리 추가 가능)
+    @Query("SELECT l FROM ContractEventLog l WHERE " +
+           "(:contractId IS NULL OR l.contract.id = :contractId) AND " +
+           "(:participantId IS NULL OR l.participant.id = :participantId) AND " +
+           "(:eventTypeCodeId IS NULL OR l.eventTypeCode.id = :eventTypeCodeId) AND " + 
+           "(:startTime IS NULL OR l.eventTime >= :startTime) AND " +
+           "(:endTime IS NULL OR l.eventTime <= :endTime) " +
+           "ORDER BY l.eventTime DESC")
+    List<ContractEventLog> searchEventLogs(
+            @Param("contractId") Long contractId,
+            @Param("participantId") Long participantId,
+            @Param("eventTypeCodeId") String eventTypeCodeId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime);
 } 

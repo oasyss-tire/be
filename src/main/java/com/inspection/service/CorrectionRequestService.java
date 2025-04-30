@@ -449,15 +449,14 @@ public class CorrectionRequestService {
                         // 서명 시간 정보
                         String timeInfo = "재서명 완료 시간: " + now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                         
-                        // 시리얼 넘버 생성
-                        String contractInfo = pdfId + "_" + participantId + "_" + now.toString();
-                        String serialNumber = generateSerialNumber(contractInfo);
-                        String serialInfo = "시리얼 넘버: " + serialNumber;
+                        // 계약번호 가져오기
+                        String contractNumber = participant.getContract().getContractNumber();
+                        String contractInfo = "계약 번호: " + contractNumber;
                         
-                        // PDF 하단에 서명 시간과 시리얼 넘버 추가
+                        // PDF 하단에 서명 시간과 계약번호 추가
                         processedPdf = pdfProcessingService.addSignatureTimeToPdf(
                             processedPdf, 
-                            timeInfo + "    " + serialInfo
+                            timeInfo + "    " + contractInfo
                         );
                         
                         // 원본 서명 PDF와 동일한 비밀번호 적용

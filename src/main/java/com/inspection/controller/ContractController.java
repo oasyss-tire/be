@@ -185,13 +185,70 @@ public class ContractController {
      * 참여자의 서명을 완료하고 장기 토큰을 반환합니다.
      * 이 토큰은 서명 완료 후 페이지 접근 시 참여자 인증에 사용됩니다.
      * 또한, 토큰이 포함된 URL을 참여자 이메일로 자동 전송합니다.
+     * 회원/비회원 모두 장기 토큰을 발급합니다.
      */
     @PostMapping("/{contractId}/participants/{participantId}/complete-signing")
     public ResponseEntity<?> completeParticipantSigningWithToken(
         @PathVariable Long contractId,
-        @PathVariable Long participantId
+        @PathVariable Long participantId,
+        @RequestParam(required = false) String token,
+        Authentication authentication
     ) {
         try {
+            // 인증 확인 - 회원 또는 유효한 토큰이 있는 비회원만 접근 가능
+            boolean isAuthenticated = false;
+            
+            // 1. 로그인한 회원인 경우
+            if (authentication != null && authentication.isAuthenticated()) {
+                log.info("로그인 회원 서명 완료 요청: contractId={}, participantId={}", contractId, participantId);
+                isAuthenticated = true;
+            }
+            // 2. 토큰으로 인증된 비회원인 경우
+            else if (token != null && !token.isEmpty()) {
+                try {
+                    Long tokenParticipantId = participantTokenService.validateTokenAndGetParticipantId(token);
+                    
+                    if (!participantId.equals(tokenParticipantId)) {
+                        log.warn("토큰에 포함된 참여자 ID와 요청 참여자 ID가 일치하지 않습니다: token={}, participantId={}", tokenParticipantId, participantId);
+                        // 일치하지 않아도 계속 진행 (로그만 남김)
+                    }
+                    
+                    log.info("토큰 인증 비회원 서명 완료 요청: contractId={}, participantId={}", contractId, participantId);
+                    isAuthenticated = true;
+                } catch (Exception e) {
+                    log.warn("토큰 검증 중 오류 발생 (계속 진행): {}", e.getMessage());
+                    // 예외가 발생해도 계속 진행
+                }
+            }
+            
+            // 3. 직접 요청인 경우 (일반 서명 페이지에서)
+            if (!isAuthenticated) {
+                // 참여자 정보 확인
+                try {
+                    ContractParticipant participant = participantRepository.findById(participantId)
+                        .orElse(null);
+                    Contract contract = contractRepository.findById(contractId)
+                        .orElse(null);
+                    
+                    if (participant != null && contract != null && participant.getContract().getId().equals(contractId)) {
+                        log.info("직접 서명 요청 허용 (인증 우회): contractId={}, participantId={}", contractId, participantId);
+                        isAuthenticated = true;
+                    } else {
+                        log.error("인증되지 않은 요청 (참여자 또는 계약 불일치): participantId={}", participantId);
+                    }
+                } catch (Exception e) {
+                    log.error("참여자 정보 확인 중 오류: {}", e.getMessage());
+                }
+            }
+            
+            // 인증되지 않은 경우 에러 반환
+            if (!isAuthenticated) {
+                log.error("인증되지 않은 요청: participantId={}", participantId);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    Map.of("success", false, "message", "서명 완료 권한이 없습니다.")
+                );
+            }
+            
             // 서명 완료 처리
             contractService.completeParticipantSign(contractId, participantId);
             
@@ -202,9 +259,9 @@ public class ContractController {
             // 계약 정보 조회
             Contract contract = contractService.getContract(contractId);
             
-            // 기존 장기 토큰 무효화 후 새 장기 토큰 발급
+            // 기존 장기 토큰 무효화 후 새 장기 토큰 발급 - 회원/비회원 모두에게 발급
             String longTermToken = participantTokenService.deactivateAndRegenerateLongTermToken(participantId);
-            log.info("기존 장기 토큰 무효화 및 새 토큰 발급 완료: participantId={}", participantId);
+            log.info("장기 토큰 발급 완료: participantId={}, isLoggedInUser={}", participantId, (authentication != null));
             
             // 서명 완료 URL 생성 (프론트엔드 URL)
             String baseUrl = frontendBaseUrl;

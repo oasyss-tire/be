@@ -26,6 +26,8 @@ import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
 
 import com.inspection.dto.TrusteeHistoryDTO;
+import com.inspection.entity.ContractTemplateMapping;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -368,8 +370,8 @@ public class TrusteeService {
         Company company = companyRepository.findById(companyId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "회사를 찾을 수 없습니다. ID: " + companyId));
         
-        // 회사의 모든 수탁자 이력 조회 (시작일 내림차순)
-        List<CompanyTrusteeHistory> histories = trusteeHistoryRepository.findByCompanyOrderByStartDateDesc(company);
+        // 회사의 모든 수탁자 이력 조회 (시작일 내림차순), 계약 및 템플릿 정보 포함
+        List<CompanyTrusteeHistory> histories = trusteeHistoryRepository.findByCompanyWithContractAndTemplatesOrderByStartDateDesc(company);
         
         LocalDate today = LocalDate.now();
         
@@ -389,6 +391,33 @@ public class TrusteeService {
                 dto.setInsuranceStartDate(history.getInsuranceStartDate());
                 dto.setInsuranceEndDate(history.getInsuranceEndDate());
                 dto.setActive(history.isActive());
+                
+                // 연결된 사용자 ID 설정
+                if (history.getUser() != null) {
+                    dto.setUserId(history.getUser().getId());
+                }
+                
+                // 계약 및 템플릿 정보 설정
+                if (history.getContract() != null) {
+                    Contract contract = history.getContract();
+                    dto.setContractId(contract.getId());
+                    dto.setContractNumber(contract.getContractNumber());
+                    
+                    // 템플릿 정보 설정
+                    if (contract.getTemplateMappings() != null && !contract.getTemplateMappings().isEmpty()) {
+                        for (ContractTemplateMapping mapping : contract.getTemplateMappings()) {
+                            if (mapping.getTemplate() != null) {
+                                TrusteeHistoryDTO.TemplateInfo templateInfo = new TrusteeHistoryDTO.TemplateInfo(
+                                    mapping.getTemplate().getId(),
+                                    mapping.getTemplate().getTemplateName(),
+                                    mapping.getProcessedPdfId(),
+                                    mapping.getSortOrder()
+                                );
+                                dto.getTemplates().add(templateInfo);
+                            }
+                        }
+                    }
+                }
                 
                 // 활성 상태 표시 추가
                 if (history.isActive()) {

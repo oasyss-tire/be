@@ -62,6 +62,7 @@ public class CompanyController {
                 request.setCreatedBy(userId);
             }
             
+            // 회사 생성 (내부적으로 사용자 계정도 함께 생성)
             CompanyDTO createdCompany = companyService.createCompany(request);
             return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
         } catch (ResponseStatusException e) {
@@ -101,7 +102,7 @@ public class CompanyController {
                 request.setCreatedBy(userId);
             }
             
-            // 1. 회사 생성
+            // 1. 회사 생성 (내부적으로 사용자 계정도 함께 생성)
             CompanyDTO createdCompany = companyService.createCompany(request);
             
             // 2. 이미지가 하나라도 있으면 이미지 업로드
@@ -353,6 +354,41 @@ public class CompanyController {
         } catch (Exception e) {
             log.error("회사 사용자 목록 조회 실패: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /**
+     * 회사 등록과 동시에 수탁사업자 계정을 자동으로 생성하는 API
+     */
+    @PostMapping("/with-user")
+    public ResponseEntity<?> createCompanyWithUser(@RequestBody CreateCompanyRequest request) {
+        try {
+            // 현재 인증된 사용자 정보 가져오기
+            String userId = getCurrentUserId();
+            if (StringUtils.hasText(userId)) {
+                request.setCreatedBy(userId);
+            }
+            
+            // 회사 생성 (내부적으로 사용자 계정도 함께 생성)
+            CompanyDTO createdCompany = companyService.createCompany(request);
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdCompany);
+        } catch (ResponseStatusException e) {
+            // ResponseStatusException 처리
+            String cleanMessage = e.getReason() != null ? e.getReason() : "회사 및 사용자 생성 중 오류가 발생했습니다";
+            log.error("회사 및 사용자 생성 중 오류 발생: {}", cleanMessage);
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of("error", "입력 오류", "message", cleanMessage));
+        } catch (IllegalArgumentException e) {
+            // IllegalArgumentException 처리
+            log.error("회사 및 사용자 생성 중 오류 발생: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "입력 오류", "message", e.getMessage()));
+        } catch (Exception e) {
+            // 기타 서버 오류 처리
+            log.error("회사 및 사용자 생성 중 서버 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "서버 오류", "message", "회사 및 사용자 생성 중 오류가 발생했습니다"));
         }
     }
 } 
