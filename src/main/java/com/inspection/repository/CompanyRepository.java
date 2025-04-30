@@ -39,4 +39,9 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
     // 가장 큰 매장 번호 조회
     @Query("SELECT MAX(c.storeNumber) FROM Company c")
     String findMaxStoreNumber();
+    
+    // 이벤트 로그 조회용 메서드
+    // 매장명, 사업자번호 또는 매장코드로 회사 검색 (키워드 검색)
+    List<Company> findByStoreNameContainingOrBusinessNumberContainingOrStoreCodeContaining(
+            String storeNameKeyword, String businessNumberKeyword, String storeCodeKeyword);
 } 

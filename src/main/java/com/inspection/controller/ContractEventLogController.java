@@ -16,11 +16,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.inspection.dto.CompanyLogDTO;
 import com.inspection.dto.ContractEventLogDTO;
+import com.inspection.dto.ContractLogDTO;
 import com.inspection.entity.ContractEventLog;
 import com.inspection.repository.ContractEventLogRepository;
 import com.inspection.repository.CodeRepository;
 import com.inspection.service.ContractEventLogService;
+import com.inspection.service.ContractLogService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +39,48 @@ public class ContractEventLogController {
 
     private final ContractEventLogRepository eventLogRepository;
     private final ContractEventLogService eventLogService;
+    private final ContractLogService contractLogService;
+    
+    /**
+     * 회사 목록 조회 API (이력 관리용)
+     * @param keyword 검색 키워드 (선택)
+     * @return 회사 목록
+     */
+    @GetMapping("/companies")
+    public ResponseEntity<List<CompanyLogDTO>> getCompaniesForLog(
+            @RequestParam(required = false) String keyword) {
+        log.info("이력 관리용 회사 목록 조회 (키워드: {})", keyword);
+        List<CompanyLogDTO> companies = contractLogService.getCompanyList(keyword);
+        return ResponseEntity.ok(companies);
+    }
+    
+    /**
+     * 특정 회사의 계약 목록 조회 API
+     * @param companyId 회사 ID
+     * @return 해당 회사의 계약 목록
+     */
+    @GetMapping("/companies/{companyId}/contracts")
+    public ResponseEntity<List<ContractLogDTO>> getContractsByCompanyForLog(
+            @PathVariable Long companyId) {
+        log.info("이력 관리용 회사 ID {}의 계약 목록 조회", companyId);
+        List<ContractLogDTO> contracts = contractLogService.getContractsByCompanyId(companyId);
+        return ResponseEntity.ok(contracts);
+    }
+    
+    /**
+     * 계약 목록 검색 API (이력 관리용)
+     * @param keyword 검색 키워드 (선택)
+     * @param statusCodeId 계약 상태 코드 (선택)
+     * @return 검색 조건에 맞는 계약 목록
+     */
+    @GetMapping("/contracts/search")
+    public ResponseEntity<List<ContractLogDTO>> searchContractsForLog(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String statusCodeId) {
+        log.info("이력 관리용 계약 검색 (키워드: {}, 상태: {})", keyword, statusCodeId);
+        List<ContractLogDTO> contracts = contractLogService.searchContracts(keyword, statusCodeId);
+        return ResponseEntity.ok(contracts);
+    }
     
     /**
      * 특정 계약에 대한 모든 이벤트 로그 조회
