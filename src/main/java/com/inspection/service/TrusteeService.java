@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,6 +20,7 @@ import com.inspection.dto.TrusteeChangeRequest;
 import com.inspection.entity.Company;
 import com.inspection.entity.CompanyTrusteeHistory;
 import com.inspection.entity.Contract;
+import com.inspection.entity.Role;
 import com.inspection.entity.User;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.CompanyTrusteeHistoryRepository;
@@ -46,7 +48,50 @@ public class TrusteeService {
     private final ObjectMapper objectMapper;
     private final ContractService contractService;
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
     
+    /**
+     * 수탁자 변경 요청 정보로 사용자 계정을 자동 생성합니다.
+     * @param request 수탁자 변경 요청 정보
+     * @param company 연결할 회사 객체
+     * @return 생성된 사용자 객체
+     */
+    private User createTrusteeUser(TrusteeChangeRequest request, Company company) {
+        // 이미 동일한 userId를 가진 사용자가 있는지 확인
+        String userId = request.getTrusteeCode();
+        if (userRepository.existsByUserId(userId)) {
+            log.warn("이미 존재하는 사용자 ID입니다: {}", userId);
+            return userRepository.findByUserId(userId).orElse(null);
+        }
+        
+        // 비밀번호 자동 생성: trusteeCode + @123
+        String initialPassword = "tb" + userId + "!@";
+        
+        User user = new User();
+        user.setUserId(userId);
+        user.setPassword(passwordEncoder.encode(initialPassword));
+        user.setRole(Role.USER);
+        user.setUserName(request.getRepresentativeName());
+        user.setActive(true);
+        // Company 연결 설정
+        user.setCompany(company);
+        
+        // 개인정보 암호화
+        if (request.getEmail() != null && !request.getEmail().isEmpty()) {
+            user.setEmail(encryptionUtil.encrypt(request.getEmail()));
+        }
+        
+        if (request.getPhoneNumber() != null && !request.getPhoneNumber().isEmpty()) {
+            user.setPhoneNumber(encryptionUtil.encrypt(request.getPhoneNumber()));
+        }
+        
+        User savedUser = userRepository.save(user);
+        log.info("수탁자 변경에 대한 사용자 계정 자동 생성 완료: {}, 수탁자: {}, 회사: {}", 
+                userId, request.getTrustee(), company.getStoreName());
+        
+        return savedUser;
+    }
+
     /**
      * 수탁자 정보를 변경하고 이력을 관리합니다.
      * 새 수탁자 정보는 CompanyTrusteeHistory에만 저장하고 시작일이 되면 스케줄러가 활성화합니다.
@@ -97,6 +142,24 @@ public class TrusteeService {
         newHistory.setReason(request.getReason() != null ? request.getReason() : "수탁자 변경");
         newHistory.setModifiedBy(request.getModifiedBy());
         
+        // 새 수탁자를 위한 User 계정 생성 (자동 생성)
+        if (request.getTrusteeCode() != null && !request.getTrusteeCode().isEmpty()) {
+            try {
+                // TrusteeChangeRequest에서 직접 User 생성
+                User user = createTrusteeUser(request, company);
+                
+                // 생성된 User를 CompanyTrusteeHistory에 연결
+                if (user != null) {
+                    newHistory.setUser(user);
+                    log.info("새 수탁자를 위한 사용자 계정 생성 완료: userId={}, userName={}", 
+                            user.getUserId(), user.getUserName());
+                }
+            } catch (Exception e) {
+                // 사용자 계정 생성 중 오류가 발생해도 수탁자 정보 변경은 계속 진행
+                log.error("새 수탁자를 위한 사용자 계정 생성 중 오류 발생: {}", e.getMessage(), e);
+            }
+        }
+        
         // 새 수탁자 이력 저장
         CompanyTrusteeHistory savedHistory = trusteeHistoryRepository.save(newHistory);
         
@@ -144,7 +207,6 @@ public class TrusteeService {
         newHistory.setCompany(company);
         newHistory.setActive(false); // 스케줄러가 시작일에 활성화할 때까지 비활성 상태 유지
         
-        
         // 기존 정보 복사
         newHistory.setTrustee(activeHistory.getTrustee());
         newHistory.setTrusteeCode(activeHistory.getTrusteeCode());
@@ -158,6 +220,9 @@ public class TrusteeService {
         newHistory.setStoreTelNumber(activeHistory.getStoreTelNumber());
         newHistory.setBusinessType(activeHistory.getBusinessType());
         newHistory.setBusinessCategory(activeHistory.getBusinessCategory());
+        
+        // 재계약 시에는 기존 User를 그대로 사용
+        newHistory.setUser(activeHistory.getUser());
         
         // 필수 입력값 확인 - 계약 시작일과 종료일
         LocalDate startDate = null;
