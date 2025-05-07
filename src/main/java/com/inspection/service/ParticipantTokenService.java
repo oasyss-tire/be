@@ -29,18 +29,18 @@ public class ParticipantTokenService {
     
     /**
      * 참여자 ID 기반으로 서명용 토큰을 생성합니다.
-     * 기본 유효기간은 24시간입니다.
+     * 기본 유효기간은 5일입니다.
      * 
      * @param participantId 참여자 ID
      * @return 생성된 토큰
      */
     @Transactional
     public String generateParticipantToken(Long participantId) {
-        // 24시간 유효한 토큰 생성 (밀리초 단위)
-        long validityInMilliseconds = 24 * 60 * 60 * 1000;
+        // 5일 유효한 토큰 생성 (밀리초 단위)
+        long validityInMilliseconds = 5 * 24 * 60 * 60 * 1000;
         
         String token = jwtTokenProvider.createParticipantToken(participantId, validityInMilliseconds);
-        log.info("참여자 ID {}에 대한 토큰이 생성되었습니다.", participantId);
+        log.info("참여자 ID {}에 대한 토큰이 생성되었습니다. (유효기간: 5일)", participantId);
         
         // 토큰 정보를 DB에 저장
         saveTokenToDatabase(participantId, token, TokenType.SIGNATURE, validityInMilliseconds);

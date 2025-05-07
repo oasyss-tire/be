@@ -345,6 +345,9 @@ public class TrusteeService {
                         participantRequest.setPhoneNumber(decryptedPhone);
                     } catch (Exception e) {
                         log.error("참여자 정보 복호화 중 오류 발생: {}", e.getMessage(), e);
+                        // 복호화에 실패한 경우 원본 값 사용
+                        participantRequest.setEmail(participant.getEmail());
+                        participantRequest.setPhoneNumber(participant.getPhoneNumber());
                     }
                     
                     participantRequest.setNotifyType(participant.getNotifyType());
@@ -423,6 +426,53 @@ public class TrusteeService {
         result.put("contractId", newContract.getId());
         result.put("contractNumber", newContract.getContractNumber());
         result.put("message", "재계약이 성공적으로 처리되었습니다.");
+        
+        // 계약 기본 정보 추가
+        result.put("id", newContract.getId()); // 프론트엔드 호환성을 위해 id도 추가
+        result.put("title", newContract.getTitle());
+        result.put("createdBy", newContract.getCreatedBy());
+        result.put("createdAt", newContract.getCreatedAt());
+        result.put("startDate", newContract.getStartDate());
+        result.put("expiryDate", newContract.getExpiryDate());
+        
+        // 참여자 정보 추가 (이메일/알림톡 발송을 위해 필수)
+        if (newContract.getParticipants() != null && !newContract.getParticipants().isEmpty()) {
+            List<Map<String, Object>> participantsList = newContract.getParticipants().stream()
+                .map(participant -> {
+                    Map<String, Object> participantMap = new HashMap<>();
+                    participantMap.put("id", participant.getId());
+                    participantMap.put("name", participant.getName());
+                    
+                    // 암호화된 이메일과 전화번호 복호화
+                    try {
+                        String decryptedEmail = encryptionUtil.decrypt(participant.getEmail());
+                        String decryptedPhone = encryptionUtil.decrypt(participant.getPhoneNumber());
+                        participantMap.put("email", decryptedEmail);
+                        participantMap.put("phoneNumber", decryptedPhone);
+                    } catch (Exception e) {
+                        log.error("참여자 정복화 중 오류 발생: {}", e.getMessage(), e);
+                        // 복호화에 실패한 경우 원본 값 사용
+                        participantMap.put("email", participant.getEmail());
+                        participantMap.put("phoneNumber", participant.getPhoneNumber());
+                    }
+                    
+                    participantMap.put("notifyType", participant.getNotifyType().name());
+                    
+                    // 계약 정보 맵 생성
+                    Map<String, Object> contractInfo = new HashMap<>();
+                    contractInfo.put("title", newContract.getTitle());
+                    participantMap.put("contract", contractInfo);
+                    
+                    return participantMap;
+                })
+                .collect(Collectors.toList());
+            
+            result.put("participants", participantsList);
+            log.info("재계약 응답에 참여자 정보 포함: 참여자 수={}", participantsList.size());
+        } else {
+            log.warn("재계약 생성은 성공했으나 참여자 정보가 없습니다. contractId={}", newContract.getId());
+            result.put("participants", List.of());
+        }
         
         return result;
     }
