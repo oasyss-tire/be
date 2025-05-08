@@ -1,15 +1,18 @@
 package com.inspection.service;
 
-import java.util.Hashtable;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.io.*;
-import org.springframework.stereotype.Service;
+import java.util.Hashtable;
+
 import org.springframework.beans.factory.annotation.Value;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
 import com.inspection.entity.ContractParticipant;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
@@ -45,7 +48,7 @@ public class SMSService {
                 "안녕하세요, %s님\n" +
                 "계약서 서명이 요청되었습니다.\n\n" +
                 "본 링크는 24시간 동안 유효합니다.\n" +
-                "문의사항: 1599-7181\n\n" +
+                "문의사항: 044-850-1078\n\n" +
                 "▣ 계약서 서명하기: http://%s",
                 name,
                 domainUrl
@@ -132,7 +135,7 @@ public class SMSService {
                 "안녕하세요, %s님\n" +
                 "%s 계약서 서명이 요청되었습니다.\n\n" +
                 "본 링크는 24시간 동안 유효합니다.\n" +
-                "문의사항: 1599-7181\n\n" +
+                "문의사항: 044-850-1078\n\n" +
                 "▣ 계약서 서명하기: %s",
                 participant.getName(),
                 contractTitle != null ? contractTitle : "",
@@ -186,7 +189,7 @@ public class SMSService {
                 "%s 계약서 서명이 완료되었습니다.\n\n" +
                 "아래 링크로 계약서를 확인하실 수 있습니다.\n" +
                 "※ 본 링크는 2년간 유효합니다.\n" +
-                "문의사항: 1599-7181\n\n" +
+                "문의사항: 044-850-1078\n\n" +
                 "▣ 서명 완료된 계약서: %s",
                 participant.getName(),
                 contractTitle != null ? contractTitle : "",

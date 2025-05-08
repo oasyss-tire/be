@@ -1,18 +1,17 @@
 package com.inspection.service;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.entity.ContractParticipant;
+
+import jakarta.mail.internet.MimeMessage;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -31,7 +30,7 @@ public class EmailService {
                "<footer style='margin-top: 20px; color: #777; font-size: 12px;'>" +
                "<p style='margin: 5px 0;'>타이어뱅크 (본점)</p>" +
                "<p style='margin: 5px 0;'>세종 한누리대로 350 8층 | 30121</p>" +
-               "<p style='margin: 5px 0;'>문의전화: 1599-7181</p>" +
+               "<p style='margin: 5px 0;'>문의전화: 044-850-1078</p>" +
                "</footer>";
     }
 
@@ -139,12 +138,12 @@ public class EmailService {
                 "<p>안녕하세요, <strong>" + name + "</strong>님</p>" +
                 "<p>" + contractTitle + " 계약서의 서명이 요청되었습니다.</p>" +
                 "<p>아래 링크를 클릭하여 서명을 진행해주세요.</p>" +
-                "<p><strong>※ 본 링크는 24시간 동안 유효합니다.</strong></p>" +
+                "<p><strong>※ 본 링크는 120시간(5일) 동안 유효합니다.</strong></p>" +
                 "<div style='margin: 30px 0;'>" +
                 "<a href='" + signatureLink + "' style='background-color: #3182F6; color: white; padding: 12px 20px; " +
                 "text-decoration: none; border-radius: 4px; font-weight: bold;'>계약서 서명하기</a>" +
                 "</div>" +
-                "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                 "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                 getEmailFooter() +
                 "</div></body></html>";
@@ -192,7 +191,7 @@ public class EmailService {
                 "<a href='" + signedContractUrl + "' style='background-color: #3182F6; color: white; padding: 12px 20px; " +
                 "text-decoration: none; border-radius: 4px; font-weight: bold;'>재서명 완료된 계약서 보기</a>" +
                 "</div>" +
-                "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                 "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                 getEmailFooter() +
                 "</div></body></html>";
@@ -239,7 +238,7 @@ public class EmailService {
                 "<a href='" + signedContractUrl + "' style='background-color: #3182F6; color: white; padding: 12px 20px; " +
                 "text-decoration: none; border-radius: 4px; font-weight: bold;'>서명 완료된 계약서 보기</a>" +
                 "</div>" +
-                "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                 "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                 getEmailFooter() +
                 "</div></body></html>";
@@ -290,12 +289,12 @@ public class EmailService {
                 "<p><strong>귀하의 재서명 요청이 승인되었습니다.</strong></p>" +
                 "<p>" + contractTitle + " 계약서의 재서명을 진행해주시기 바랍니다.</p>" +
                 "<p>아래 링크를 클릭하여 서명을 진행해주세요.</p>" +
-                "<p><strong>※ 본 링크는 24시간 동안 유효합니다.</strong></p>" +
+                "<p><strong>※ 본 링크는 120시간(5일) 동안 유효합니다.</strong></p>" +
                 "<div style='margin: 30px 0;'>" +
                 "<a href='" + signatureLink + "' style='background-color: #3182F6; color: white; padding: 12px 20px; " +
                 "text-decoration: none; border-radius: 4px; font-weight: bold;'>계약서 재서명하기</a>" +
                 "</div>" +
-                "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                 "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                 getEmailFooter() +
                 "</div></body></html>";
@@ -342,7 +341,7 @@ public class EmailService {
                 "</div>" +
                 "<p style='color: #666; font-size: 12px;'>※ 보안을 위해 이 암호는 타인과 공유하지 마세요.</p>" +
                 "<p style='color: #666; font-size: 12px;'>※ 문서는 암호를 사용해 내용을 보호하고 있습니다.</p>" +
-                "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                 "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                 getEmailFooter() +
                 "</div></body></html>";
@@ -402,7 +401,7 @@ public class EmailService {
                 "text-decoration: none; border-radius: 4px; font-weight: bold;'>서명 완료된 계약서 보기</a>" +
                 "</div>" +
                 passwordSection +
-                "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                 "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                 getEmailFooter() +
                 "</div></body></html>";
@@ -477,14 +476,14 @@ public class EmailService {
                     "<p><strong>" + contractTitle + "</strong> 계약서에 대한 재서명이 요청되었습니다.</p>" +
                     "<p>관리자가 확인한 결과, <strong>" + fieldCount + "개</strong>의 필드에 대한 수정이 필요합니다.</p>" +
                     "<p>아래 링크를 클릭하여 재서명을 진행해주세요.</p>" +
-                    "<p><strong>※ 본 링크는 24시간 동안 유효합니다.</strong></p>" +
+                    "<p><strong>※ 본 링크는 120시간(5일) 동안 유효합니다.</strong></p>" +
                     "<div style='margin: 30px 0;'>" +
                     "<a href='" + correctionUrl + "' style='background-color: #3182F6; color: white; padding: 12px 20px; " +
                     "text-decoration: none; border-radius: 4px; font-weight: bold;'>계약서 재서명하기</a>" +
                     "</div>" +
                     "<p>링크가 작동하지 않는 경우, 아래 URL을 브라우저에 복사하여 붙여넣기 해주세요:</p>" +
                     "<p style='word-break: break-all; font-size: 12px; color: #666;'>" + correctionUrl + "</p>" +
-                    "<p>문의사항은 1599-7181로 연락주시기 바랍니다.</p>" +
+                    "<p>문의사항은 044-850-1078로 연락주시기 바랍니다.</p>" +
                     "<p>감사합니다.<br>타이어뱅크 드림</p>" +
                     getEmailFooter() +
                     "</div></body></html>";
