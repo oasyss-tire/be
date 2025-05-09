@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>JSON 배열 변환 도구</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        textarea {
+            width: 100%;
+            height: 300px;
+            margin-bottom: 10px;
+            padding: 10px;
+            box-sizing: border-box;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .result {
+            margin-top: 20px;
+        }
+        h2 {
+            color: #333;
+        }
+        .info {
+            background-color: #e7f3fe;
+            border-left: 6px solid #2196F3;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        .formats {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        .format-option {
+            margin-right: 15px;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JSON 변환 도구</h1>
+        
+        <div class="info">
+            <p>이 도구는 JSON 데이터를 다양한 형식으로 변환합니다.</p>
+            <p>특히 줄바꿈으로 구분된 여러 개의 JSON 객체를 올바른 JSON 배열 형식으로 변환합니다.</p>
+        </div>
+        
+        <div>
+            <h2>1. 원본 JSON 데이터</h2>
+            <p>각 줄에 하나의 JSON 객체가 있는 데이터를 붙여넣기하세요.</p>
+            <textarea id="inputData" placeholder="여기에 JSON 데이터를 붙여넣기하세요..."></textarea>
+        </div>
+        
+        <div class="formats">
+            <h3>출력 형식:</h3>
+            <label class="format-option">
+                <input type="radio" name="format" value="array" checked> 단순 배열 [item1, item2, ...]
+            </label>
+            <label class="format-option">
+                <input type="radio" name="format" value="companies"> {"companies": [item1, item2, ...]}
+            </label>
+        </div>
+        
+        <div>
+            <button id="convertBtn">변환하기</button>
+            <button id="clearBtn">초기화</button>
+        </div>
+        
+        <div class="result">
+            <h2>2. 변환된 JSON</h2>
+            <textarea id="outputData" placeholder="변환된 JSON이 여기에 표시됩니다..." readonly></textarea>
+            <button id="copyBtn">클립보드에 복사</button>
+            <span id="copyStatus"></span>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('convertBtn').addEventListener('click', convertJson);
+        document.getElementById('clearBtn').addEventListener('click', clearAll);
+        document.getElementById('copyBtn').addEventListener('click', copyToClipboard);
+
+        function convertJson() {
+            const inputText = document.getElementById('inputData').value.trim();
+            if (!inputText) {
+                alert('JSON 데이터를 입력해주세요.');
+                return;
+            }
+
+            try {
+                // 여러 줄의 텍스트를 분석
+                let jsonObjects = [];
+                
+                // 입력 데이터가 단일 줄이지만 여러 객체를 포함할 수 있음
+                if (!inputText.includes('\n')) {
+                    // 시작과 끝이 대괄호로 감싸져 있으면 이미 배열로 간주
+                    if (inputText.trim().startsWith('[') && inputText.trim().endsWith(']')) {
+                        jsonObjects = JSON.parse(inputText);
+                    } 
+                    // 시작과 끝이 중괄호로 감싸져 있으면 단일 객체로 간주
+                    else if (inputText.trim().startsWith('{') && inputText.trim().endsWith('}')) {
+                        jsonObjects = [JSON.parse(inputText)];
+                    }
+                    // 그 외의 경우 에러
+                    else {
+                        throw new Error('유효한 JSON 형식이 아닙니다.');
+                    }
+                } 
+                // 여러 줄인 경우
+                else {
+                    const lines = inputText.split('\n');
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            jsonObjects.push(JSON.parse(line.trim()));
+                        } catch (err) {
+                            throw new Error(`다음 줄의 JSON 파싱 오류: ${line}\n오류: ${err.message}`);
+                        }
+                    }
+                }
+                
+                // 출력 형식 결정 (단순 배열 또는 companies 객체)
+                const outputFormat = document.querySelector('input[name="format"]:checked').value;
+                let outputData;
+                
+                if (outputFormat === 'array') {
+                    outputData = jsonObjects;
+                } else {
+                    outputData = { companies: jsonObjects };
+                }
+                
+                // 변환된 JSON을 출력
+                document.getElementById('outputData').value = JSON.stringify(outputData, null, 2);
+            } catch (error) {
+                alert('JSON 변환 오류: ' + error.message);
+            }
+        }
+
+        function clearAll() {
+            document.getElementById('inputData').value = '';
+            document.getElementById('outputData').value = '';
+            document.getElementById('copyStatus').textContent = '';
+        }
+
+        function copyToClipboard() {
+            const outputText = document.getElementById('outputData').value;
+            if (!outputText.trim()) {
+                alert('복사할 데이터가 없습니다.');
+                return;
+            }
+
+            navigator.clipboard.writeText(outputText)
+                .then(() => {
+                    const status = document.getElementById('copyStatus');
+                    status.textContent = ' 복사 완료!';
+                    setTimeout(() => {
+                        status.textContent = '';
+                    }, 2000);
+                })
+                .catch(err => {
+                    alert('클립보드 복사 실패: ' + err.message);
+                });
+        }
+    </script>
+</body>
+</html> 

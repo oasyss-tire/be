@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.inspection.dto.CompanyDTO;
 import com.inspection.dto.CreateCompanyRequest;
 import com.inspection.dto.UserResponseDTO;
+import com.inspection.dto.BatchResponseDTO;
 import com.inspection.entity.Company;
 import com.inspection.entity.CompanyImage;
 import com.inspection.entity.CompanyTrusteeHistory;
@@ -22,6 +23,7 @@ import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.CompanyTrusteeHistoryRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
+
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -707,5 +709,56 @@ public class CompanyService {
     @Transactional
     public Map<String, Object> renewContract(Long companyId, Map<String, Object> request, String userId) {
         return trusteeService.renewContract(companyId, request, userId);
+    }
+
+    /**
+     * 여러 회사 정보를 일괄 등록합니다. (배치 처리)
+     */
+    @Transactional
+    public BatchResponseDTO createCompanyBatch(List<CreateCompanyRequest> requests) {
+        BatchResponseDTO response = new BatchResponseDTO();
+        
+        for (CreateCompanyRequest request : requests) {
+            try {
+                // 회사 정보 생성
+                CompanyDTO createdCompany = createCompany(request);
+                
+                // 성공 정보 추가
+                String identifier = request.getCompanyName();
+                if (identifier == null || identifier.isEmpty()) {
+                    identifier = request.getStoreName();
+                    if (identifier == null || identifier.isEmpty()) {
+                        identifier = "회사 정보";
+                    }
+                }
+                
+                response.addSuccess(identifier, createdCompany.getId());
+                log.info("배치 처리 - 회사 생성 성공: {}", identifier);
+                
+            } catch (Exception e) {
+                // 오류 정보 추가
+                String identifier = request.getCompanyName();
+                if (identifier == null || identifier.isEmpty()) {
+                    identifier = request.getStoreName();
+                    if (identifier == null || identifier.isEmpty()) {
+                        identifier = "알 수 없는 회사";
+                    }
+                }
+                
+                String errorMessage = e.getMessage();
+                if (e instanceof ResponseStatusException) {
+                    ResponseStatusException rse = (ResponseStatusException) e;
+                    errorMessage = rse.getReason();
+                }
+                
+                response.addFailure(identifier, errorMessage);
+                log.error("배치 처리 - 회사 생성 실패: {}, 오류: {}", identifier, errorMessage);
+            }
+        }
+        
+        log.info("회사 배치 처리 완료 - 전체: {}, 성공: {}, 실패: {}", 
+            response.getTotalCount(), response.getSuccessCount(), response.getFailCount());
+        
+        return response;
     }
 } 

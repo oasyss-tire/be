@@ -30,12 +30,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.inspection.dto.CompanyDTO;
 import com.inspection.dto.CreateCompanyRequest;
 import com.inspection.dto.UserResponseDTO;
+import com.inspection.dto.CompanyBatchRequest;
+import com.inspection.dto.BatchResponseDTO;
 import com.inspection.service.CompanyService;
 import com.inspection.service.CompanyImageStorageService;
 
@@ -389,6 +392,31 @@ public class CompanyController {
             log.error("회사 및 사용자 생성 중 서버 오류 발생: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "서버 오류", "message", "회사 및 사용자 생성 중 오류가 발생했습니다"));
+        }
+    }
+
+    // 회사 일괄 등록 API
+    @PostMapping("/batch")
+    public ResponseEntity<?> createCompanyBatch(@RequestBody CompanyBatchRequest batchRequest) {
+        try {
+            // 현재 인증된 사용자 정보 가져오기
+            String userId = getCurrentUserId();
+            
+            // 사용자 정보 설정
+            if (StringUtils.hasText(userId)) {
+                for (CreateCompanyRequest request : batchRequest.getCompanies()) {
+                    request.setCreatedBy(userId);
+                }
+            }
+            
+            // 배치 처리 실행
+            BatchResponseDTO result = companyService.createCompanyBatch(batchRequest.getCompanies());
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(result);
+        } catch (Exception e) {
+            log.error("회사 일괄 등록 중 오류 발생: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "서버 오류", "message", "회사 일괄 등록 중 오류가 발생했습니다."));
         }
     }
 } 
