@@ -33,12 +33,18 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Direction;
 
 import com.inspection.dto.CompanyDTO;
 import com.inspection.dto.CreateCompanyRequest;
 import com.inspection.dto.UserResponseDTO;
 import com.inspection.dto.CompanyBatchRequest;
 import com.inspection.dto.BatchResponseDTO;
+import com.inspection.dto.PageResponseDTO;
 import com.inspection.service.CompanyService;
 import com.inspection.service.CompanyImageStorageService;
 
@@ -190,22 +196,74 @@ public class CompanyController {
         return ResponseEntity.ok(updatedCompany);
     }
 
-    // 모든 회사 목록 조회 API
+    // 회사 목록 조회 API (페이징 지원)
     @GetMapping
-    public ResponseEntity<List<CompanyDTO>> getAllCompanies(
-            @RequestParam(value = "active", required = false) Boolean active) {
+    public ResponseEntity<?> getAllCompanies(
+            @RequestParam(value = "active", required = false) Boolean active,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size,
+            @RequestParam(value = "sort", required = false) String sort) {
         
-        List<CompanyDTO> companies;
-        if (active != null && active) {
-            companies = companyService.getActiveCompanies();
-        } else {
-            companies = companyService.getAllCompanies();
+        // 페이징 파라미터가 없는 경우 기존 로직 실행 (하위 호환성 유지)
+        if (page == null && size == null && sort == null) {
+            List<CompanyDTO> companies;
+            if (active != null && active) {
+                companies = companyService.getActiveCompanies();
+            } else {
+                companies = companyService.getAllCompanies();
+            }
+            return ResponseEntity.ok(companies);
         }
         
-        return ResponseEntity.ok(companies);
+        // 페이징 파라미터가 있는 경우 페이징 처리
+        int pageNum = (page != null) ? page : 0;
+        int sizeNum = (size != null) ? size : 10;
+        
+        // 정렬 설정
+        Pageable pageable;
+        if (sort != null && !sort.isEmpty()) {
+            String[] sortParams = sort.split(",");
+            String sortField = sortParams[0];
+            Direction direction = (sortParams.length > 1 && sortParams[1].equalsIgnoreCase("asc")) 
+                    ? Direction.ASC : Direction.DESC;
+            pageable = PageRequest.of(pageNum, sizeNum, Sort.by(direction, sortField));
+        } else {
+            pageable = PageRequest.of(pageNum, sizeNum, Sort.by(Direction.DESC, "id"));
+        }
+        
+        // 페이징된 데이터 조회
+        Page<CompanyDTO> companyPage;
+        if (active != null && active) {
+            companyPage = companyService.getActiveCompaniesWithPaging(pageable);
+        } else {
+            companyPage = companyService.getAllCompaniesWithPaging(pageable);
+        }
+        
+        return ResponseEntity.ok(PageResponseDTO.fromPage(companyPage));
     }
     
-
+    // 페이징 처리된 회사 목록 조회 API (별도 엔드포인트)
+    @GetMapping("/page")
+    public ResponseEntity<PageResponseDTO<CompanyDTO>> getCompaniesWithPaging(
+            @RequestParam(value = "active", required = false) Boolean active,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            @RequestParam(value = "sort", defaultValue = "id") String sort,
+            @RequestParam(value = "direction", defaultValue = "DESC") String direction) {
+        
+        Sort.Direction sortDirection = direction.equalsIgnoreCase("ASC") ? Direction.ASC : Direction.DESC;
+        Pageable pageable = PageRequest.of(page, size, Sort.by(sortDirection, sort));
+        
+        Page<CompanyDTO> companyPage;
+        if (active != null && active) {
+            companyPage = companyService.getActiveCompaniesWithPaging(pageable);
+        } else {
+            companyPage = companyService.getAllCompaniesWithPaging(pageable);
+        }
+        
+        return ResponseEntity.ok(PageResponseDTO.fromPage(companyPage));
+    }
+    
     // 회사 ID로 회사 정보 조회 API
     @GetMapping("/{companyId}")
     public ResponseEntity<CompanyDTO> getCompanyById(@PathVariable Long companyId) {
@@ -302,13 +360,89 @@ public class CompanyController {
     }
     
 
-    // 매장명으로 회사 검색 API
+    // 매장명으로 회사 검색 API (페이징 지원)
     @GetMapping("/search")
-    public ResponseEntity<List<CompanyDTO>> searchCompaniesByName(
-            @RequestParam("name") String storeName) {
+    public ResponseEntity<?> searchCompaniesByName(
+            @RequestParam("name") String storeName,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size,
+            @RequestParam(value = "sort", required = false) String sort) {
 
-        List<CompanyDTO> companies = companyService.searchCompaniesByName(storeName);
-        return ResponseEntity.ok(companies);
+        // 페이징 파라미터가 없는 경우 기존 로직 실행 (하위 호환성 유지)
+        if (page == null && size == null && sort == null) {
+            List<CompanyDTO> companies = companyService.searchCompaniesByName(storeName);
+            return ResponseEntity.ok(companies);
+        }
+        
+        // 페이징 파라미터가 있는 경우 페이징 처리
+        int pageNum = (page != null) ? page : 0;
+        int sizeNum = (size != null) ? size : 10;
+        
+        // 정렬 설정
+        Pageable pageable;
+        if (sort != null && !sort.isEmpty()) {
+            String[] sortParams = sort.split(",");
+            String sortField = sortParams[0];
+            Direction direction = (sortParams.length > 1 && sortParams[1].equalsIgnoreCase("asc")) 
+                    ? Direction.ASC : Direction.DESC;
+            pageable = PageRequest.of(pageNum, sizeNum, Sort.by(direction, sortField));
+        } else {
+            pageable = PageRequest.of(pageNum, sizeNum, Sort.by(Direction.DESC, "id"));
+        }
+        
+        Page<CompanyDTO> companyPage = companyService.searchCompaniesByNameWithPaging(storeName, pageable);
+        return ResponseEntity.ok(PageResponseDTO.fromPage(companyPage));
+    }
+
+    // 페이징 처리된 회사 검색 API (별도 엔드포인트)
+    @GetMapping("/search/page")
+    public ResponseEntity<PageResponseDTO<CompanyDTO>> searchCompaniesByNameWithPaging(
+            @RequestParam("name") String storeName,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            @RequestParam(value = "sort", defaultValue = "id") String sort,
+            @RequestParam(value = "direction", defaultValue = "DESC") String direction) {
+        
+        Sort.Direction sortDirection = direction.equalsIgnoreCase("ASC") ? Direction.ASC : Direction.DESC;
+        Pageable pageable = PageRequest.of(page, size, Sort.by(sortDirection, sort));
+        
+        Page<CompanyDTO> companyPage = companyService.searchCompaniesByNameWithPaging(storeName, pageable);
+        
+        return ResponseEntity.ok(PageResponseDTO.fromPage(companyPage));
+    }
+    
+    // 키워드로 회사 검색 API (통합 검색)
+    @GetMapping("/search/keyword")
+    public ResponseEntity<PageResponseDTO<CompanyDTO>> searchCompaniesByKeyword(
+            @RequestParam("keyword") String keyword,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            @RequestParam(value = "sort", defaultValue = "id") String sort,
+            @RequestParam(value = "direction", required = false) String direction) {
+        
+        // 정렬 설정
+        Pageable pageable;
+        if (direction == null) {
+            // sort 파라미터에 방향이 포함된 경우 (예: "id,desc")
+            if (sort.contains(",")) {
+                String[] sortParams = sort.split(",");
+                String sortField = sortParams[0];
+                Direction sortDirection = (sortParams.length > 1 && sortParams[1].equalsIgnoreCase("asc")) 
+                        ? Direction.ASC : Direction.DESC;
+                pageable = PageRequest.of(page, size, Sort.by(sortDirection, sortField));
+            } else {
+                // 기본 내림차순 정렬
+                pageable = PageRequest.of(page, size, Sort.by(Direction.DESC, sort));
+            }
+        } else {
+            // sort와 direction이 별도 파라미터로 제공된 경우
+            Direction sortDirection = direction.equalsIgnoreCase("ASC") ? Direction.ASC : Direction.DESC;
+            pageable = PageRequest.of(page, size, Sort.by(sortDirection, sort));
+        }
+        
+        Page<CompanyDTO> companyPage = companyService.searchCompaniesByKeywordWithPaging(keyword, pageable);
+        
+        return ResponseEntity.ok(PageResponseDTO.fromPage(companyPage));
     }
 
     // 이미지 파일 조회 API

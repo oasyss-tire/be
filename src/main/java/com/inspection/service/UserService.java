@@ -5,6 +5,8 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -224,5 +226,96 @@ public class UserService implements UserDetailsService {
         userRepository.save(user);
         
         log.info("비밀번호 변경 완료 - id: {}", id);
+    }
+
+    // 모든 사용자 조회 (페이징)
+    @Transactional(readOnly = true)
+    public Page<UserResponseDTO> getAllUsersWithPaging(Pageable pageable) {
+        return userRepository.findAll(pageable)
+            .map(user -> {
+                UserResponseDTO dto = new UserResponseDTO(user);
+                try {
+                    // 이메일 복호화
+                    if (user.getEmail() != null && !user.getEmail().isEmpty()) {
+                        try {
+                            dto.setEmail(aesEncryption.decrypt(user.getEmail()));
+                        } catch (Exception e) {
+                            log.warn("이메일 복호화 실패: {}", user.getEmail());
+                            dto.setEmail(user.getEmail());  // 실패시 원본값 사용
+                        }
+                    }
+                    
+                    // 전화번호 복호화
+                    if (user.getPhoneNumber() != null && !user.getPhoneNumber().isEmpty()) {
+                        try {
+                            dto.setPhoneNumber(aesEncryption.decrypt(user.getPhoneNumber()));
+                        } catch (Exception e) {
+                            log.warn("전화번호 복호화 실패: {}", user.getPhoneNumber());
+                            dto.setPhoneNumber(user.getPhoneNumber());  // 실패시 원본값 사용
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("사용자 정보 복호화 중 오류: {}", e.getMessage());
+                }
+                return dto;
+            });
+    }
+    
+    // 키워드로 사용자 검색 (페이징)
+    @Transactional(readOnly = true)
+    public Page<UserResponseDTO> searchUsersByKeywordWithPaging(String keyword, Pageable pageable) {
+        return userRepository.findByUserIdContainingOrUserNameContaining(keyword, keyword, pageable)
+            .map(user -> {
+                UserResponseDTO dto = new UserResponseDTO(user);
+                try {
+                    // 이메일 복호화
+                    if (user.getEmail() != null && !user.getEmail().isEmpty()) {
+                        try {
+                            dto.setEmail(aesEncryption.decrypt(user.getEmail()));
+                        } catch (Exception e) {
+                            log.warn("이메일 복호화 실패: {}", user.getEmail());
+                            dto.setEmail(user.getEmail());  // 실패시 원본값 사용
+                        }
+                    }
+                    
+                    // 전화번호 복호화
+                    if (user.getPhoneNumber() != null && !user.getPhoneNumber().isEmpty()) {
+                        try {
+                            dto.setPhoneNumber(aesEncryption.decrypt(user.getPhoneNumber()));
+                        } catch (Exception e) {
+                            log.warn("전화번호 복호화 실패: {}", user.getPhoneNumber());
+                            dto.setPhoneNumber(user.getPhoneNumber());  // 실패시 원본값 사용
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("사용자 정보 복호화 중 오류: {}", e.getMessage());
+                }
+                return dto;
+            });
+    }
+
+    // 비밀번호 초기화 - 관리자용
+    @Transactional
+    public void resetPassword(Long userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다. ID: " + userId));
+        
+        // 비밀번호 초기화 (고정된 초기화 비밀번호)
+        String initialPassword = "tb0000!@"; // 기본 초기화 비밀번호
+        
+        // 비밀번호 정책 검증 (고정된 초기화 비밀번호도 정책을 만족하는지 확인)
+        if (!PasswordValidator.isValid(initialPassword)) {
+            throw new RuntimeException("초기화 비밀번호가 정책을 만족하지 않습니다. 개발자에게 문의하세요.");
+        }
+        
+        // 비밀번호 암호화
+        String encodedPassword = passwordEncoder.encode(initialPassword);
+        user.setPassword(encodedPassword);
+        
+        // 사용자 상태를 활성화로 변경 (필요 시 제거)
+        user.setActive(true);
+        
+        userRepository.save(user);
+        log.info("사용자 비밀번호 초기화 완료 - userId: {}, userName: {}", user.getUserId(), user.getUserName());
     }
 } 

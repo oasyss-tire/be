@@ -36,6 +36,8 @@ import com.inspection.dto.TrusteeChangeRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Service
 @RequiredArgsConstructor
@@ -760,5 +762,42 @@ public class CompanyService {
             response.getTotalCount(), response.getSuccessCount(), response.getFailCount());
         
         return response;
+    }
+
+    /**
+     * 모든 회사 목록을 페이징 처리하여 조회합니다.
+     */
+    @Transactional(readOnly = true)
+    public Page<CompanyDTO> getAllCompaniesWithPaging(Pageable pageable) {
+        return companyRepository.findAll(pageable)
+            .map(CompanyDTO::fromEntity);
+    }
+    
+    /**
+     * 활성화된 회사 목록을 페이징 처리하여 조회합니다.
+     */
+    @Transactional(readOnly = true)
+    public Page<CompanyDTO> getActiveCompaniesWithPaging(Pageable pageable) {
+        return companyRepository.findByActiveTrue(pageable)
+            .map(CompanyDTO::fromEntity);
+    }
+    
+    /**
+     * 매장명으로 회사를 검색하고 페이징 처리하여 조회합니다.
+     */
+    @Transactional(readOnly = true)
+    public Page<CompanyDTO> searchCompaniesByNameWithPaging(String storeName, Pageable pageable) {
+        return companyRepository.findByStoreNameContaining(storeName, pageable)
+            .map(CompanyDTO::fromEntity);
+    }
+    
+    /**
+     * 키워드로 회사를 검색하고 페이징 처리하여 조회합니다.
+     */
+    @Transactional(readOnly = true)
+    public Page<CompanyDTO> searchCompaniesByKeywordWithPaging(String keyword, Pageable pageable) {
+        return companyRepository.findByStoreNameContainingOrBusinessNumberContainingOrStoreCodeContaining(
+                keyword, keyword, keyword, pageable)
+            .map(CompanyDTO::fromEntity);
     }
 } 
