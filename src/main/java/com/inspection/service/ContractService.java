@@ -297,7 +297,10 @@ public class ContractService {
                     // 참여자별 PDF ID 생성
                     String participantPdfId = generateParticipantPdfId(
                         templateMapping.getProcessedPdfId(), 
-                        participant.getName(), contract
+                        participant.getName(),
+                        contract,
+                        templateMapping.getTemplate().getId(),
+                        templateMapping.getSortOrder()
                     );
                     
                     // 템플릿 PDF 복사
@@ -441,7 +444,8 @@ public class ContractService {
         return participant;
     }
     
-    private String generateParticipantPdfId(String templatePdfId, String participantName, Contract contract) {
+    private String generateParticipantPdfId(String templatePdfId, String participantName, Contract contract, 
+                                          Long templateId, Integer sortOrder) {
         // 타임스탬프 생성 (yyyyMMdd_HHmmss 형식)
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         
@@ -464,8 +468,9 @@ public class ContractService {
             extension = templatePdfId.substring(dotIndex);
         }
         
-        // 파일명 조합: 타임스탬프_계약단계_계약번호_파일명_참여자이름.확장자
-        return timestamp + "_" + contractStage + "_" + contractNumber + "_" + originalFileName + "_" + cleanName + extension;
+        // 파일명 조합: 타임스탬프_계약단계_계약번호_파일명_템플릿ID_순서_참여자이름.확장자
+        return timestamp + "_" + contractStage + "_" + contractNumber + "_" + 
+               originalFileName + "_" + templateId + "_" + sortOrder + "_" + cleanName + extension;
     }
     
     /**

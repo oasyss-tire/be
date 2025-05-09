@@ -108,7 +108,7 @@ public class ContractTemplateService {
     }
     
     public ContractTemplate getTemplate(Long templateId) {
-        return templateRepository.findById(templateId)
+        return templateRepository.findByIdWithFields(templateId)
             .orElseThrow(() -> new RuntimeException("Template not found: " + templateId));
     }
     

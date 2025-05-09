@@ -12,6 +12,7 @@ import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.Set;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -34,6 +36,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -50,12 +53,14 @@ import com.inspection.entity.ContractTemplate;
 import com.inspection.entity.ParticipantPdfField;
 import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.entity.Contract;
+import com.inspection.entity.Code;
 import com.inspection.exception.ValidationException;
 import com.inspection.repository.ContractParticipantRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ContractTemplateRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
 import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.repository.CodeRepository;
 import com.inspection.service.ContractPdfService;
 import com.inspection.service.ContractTemplateService;
 import com.inspection.service.EmailService;
@@ -85,6 +90,7 @@ public class ContractPdfController {
     private final EmailService emailService;
     private final EncryptionUtil encryptionUtil;
     private final ParticipantPdfFieldRepository participantPdfFieldRepository;
+    private final CodeRepository codeRepository;
 
     @Value("${file.upload.path}")
     private String uploadPath;
@@ -1299,4 +1305,209 @@ public class ContractPdfController {
         }
     }
 
+    /**
+     * 템플릿 기본 정보 (이름, 설명) 업데이트 API
+     */
+    @PutMapping("/update-template-info/{templateId}")
+    public ResponseEntity<ContractTemplateDTO> updateTemplateInfo(
+        @PathVariable Long templateId,
+        @RequestParam String templateName,
+        @RequestParam(required = false) String description
+    ) {
+        try {
+            // 1. 해당 ID의 템플릿 조회
+            ContractTemplate template = contractTemplateRepository.findById(templateId)
+                .orElseThrow(() -> new RuntimeException("템플릿을 찾을 수 없습니다: " + templateId));
+            
+            // 2. 기본 정보 업데이트
+            template.setTemplateName(templateName);
+            template.setDescription(description);
+            
+            // 3. 템플릿 필드를 바탕으로 새 PDF 생성
+            byte[] originalPdf = pdfStorageService.loadOriginalPdf(template.getOriginalPdfId());
+            byte[] processedPdf = pdfProcessingService.addFieldsToPdf(originalPdf, template.getFields());
+            
+            // 4. 로고 워터마크 추가
+            processedPdf = pdfProcessingService.addLogoWatermark(
+                processedPdf, 
+                "/images/tirebank_logo.png"
+            );
+            
+            // 5. 새로운 processedPdfId 생성
+            String originalPdfId = template.getOriginalPdfId();
+            String originalFileName = "";
+            
+            // 원본 PDF ID 형식이 "타임스탬프_original_파일명.pdf"인 경우
+            if (originalPdfId.contains("_original_")) {
+                int startIndex = originalPdfId.indexOf("_original_") + "_original_".length();
+                int endIndex = originalPdfId.lastIndexOf(".");
+                if (startIndex > 0 && endIndex > startIndex) {
+                    originalFileName = originalPdfId.substring(startIndex, endIndex);
+                } else {
+                    // 기존 형식에서 추출할 수 없는 경우, 확장자 제외한 전체 파일명 사용
+                    int dotIndex = originalPdfId.lastIndexOf(".");
+                    if (dotIndex > 0) {
+                        originalFileName = originalPdfId.substring(0, dotIndex);
+                    } else {
+                        originalFileName = originalPdfId;
+                    }
+                }
+            } else {
+                // 다른 형식이면 원본 ID 그대로 사용
+                originalFileName = originalPdfId;
+            }
+            
+            // 새 PDF ID 생성
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            String newProcessedPdfId = timestamp + "_template_" + originalFileName + ".pdf";
+            
+            // 6. 템플릿의 processedPdfId 업데이트
+            String oldProcessedPdfId = template.getProcessedPdfId();
+            template.setProcessedPdfId(newProcessedPdfId);
+            
+            // 7. 새로운 템플릿 PDF 저장
+            pdfStorageService.saveTemplatePdf(newProcessedPdfId, processedPdf);
+            log.info("새로운 템플릿 PDF 생성 및 저장: {} -> {}", oldProcessedPdfId, newProcessedPdfId);
+            
+            // 8. 템플릿 저장
+            ContractTemplate updatedTemplate = contractTemplateRepository.save(template);
+            log.info("템플릿 기본 정보 및 processedPdfId 업데이트 완료: {}", templateId);
+            
+            // 9. DTO로 변환하여 반환 (무한 순환 참조 방지)
+            return ResponseEntity.ok(new ContractTemplateDTO(updatedTemplate));
+        } catch (Exception e) {
+            log.error("템플릿 정보 업데이트 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 템플릿 필드 업데이트 API - 템플릿에 연결된 필드 정보를 업데이트
+     */
+    @PutMapping("/update-template-fields/{templateId}")
+    public ResponseEntity<ContractTemplateDTO> updateTemplateFields(
+        @PathVariable Long templateId,
+        @RequestBody SaveContractPdfFieldsRequest request
+    ) {
+        try {
+            log.info("템플릿 필드 업데이트 요청: templateId={}, fieldCount={}", 
+                templateId, request.getFields().size());
+            
+            // 1. 해당 ID의 템플릿 조회
+            ContractTemplate template = contractTemplateRepository.findById(templateId)
+                .orElseThrow(() -> new RuntimeException("템플릿을 찾을 수 없습니다: " + templateId));
+            
+            // 2. 템플릿 필드를 ID 기준으로 빠르게 조회할 수 있는 맵으로 변환
+            Map<String, ContractPdfField> fieldMap = new HashMap<>();
+            for (ContractPdfField field : template.getFields()) {
+                fieldMap.put(field.getFieldId(), field);
+            }
+            log.info("템플릿 #{} 기존 필드 개수: {}", templateId, fieldMap.size());
+            
+            // 3. 변경된 필드 목록과 새로 추가된 필드 목록을 분리하여 처리
+            List<ContractPdfField> newFields = new ArrayList<>(); // 새로 추가할 필드만 저장
+            
+            for (ContractPdfFieldDTO dto : request.getFields()) {
+                // 기존 필드가 있는 경우: 업데이트
+                if (fieldMap.containsKey(dto.getFieldId())) {
+                    ContractPdfField existingField = fieldMap.get(dto.getFieldId());
+                    
+                    // 필드 정보 업데이트 (변경 감지(dirty checking)로 자동 저장됨)
+                    existingField.setFieldName(dto.getFieldName());
+                    existingField.setType(dto.getType());
+                    existingField.setRelativeX(dto.getRelativeX());
+                    existingField.setRelativeY(dto.getRelativeY());
+                    existingField.setRelativeWidth(dto.getRelativeWidth());
+                    existingField.setRelativeHeight(dto.getRelativeHeight());
+                    existingField.setPage(dto.getPage());
+                    existingField.setValue(dto.getValue());
+                    existingField.setConfirmText(dto.getConfirmText());
+                    existingField.setDescription(dto.getDescription());
+                    
+                    // 형식 코드 업데이트 (formatCodeId가 있는 경우)
+                    if (dto.getFormatCodeId() != null && !dto.getFormatCodeId().isEmpty()) {
+                        try {
+                            Code formatCode = codeRepository.findById(dto.getFormatCodeId())
+                                .orElse(null);
+                            existingField.setFormat(formatCode);
+                        } catch (Exception e) {
+                            log.warn("형식 코드를 찾을 수 없습니다: {}", dto.getFormatCodeId());
+                        }
+                    } else {
+                        existingField.setFormat(null); // formatCodeId가 없으면 format을 null로 설정
+                    }
+                    
+                    log.info("기존 필드 업데이트 (ID: {}): {}", existingField.getId(), dto.getFieldId());
+                }
+                // 새로운 필드인 경우: 생성 후 추가
+                else {
+                    ContractPdfField newField = new ContractPdfField();
+                    newField.setPdfId(template.getOriginalPdfId());
+                    newField.setFieldId(dto.getFieldId());
+                    newField.setFieldName(dto.getFieldName());
+                    newField.setType(dto.getType());
+                    newField.setRelativeX(dto.getRelativeX());
+                    newField.setRelativeY(dto.getRelativeY());
+                    newField.setRelativeWidth(dto.getRelativeWidth());
+                    newField.setRelativeHeight(dto.getRelativeHeight());
+                    newField.setPage(dto.getPage());
+                    newField.setValue(dto.getValue());
+                    newField.setConfirmText(dto.getConfirmText());
+                    newField.setDescription(dto.getDescription());
+                    newField.setTemplate(template);
+                    
+                    // 형식 코드 설정 (formatCodeId가 있는 경우)
+                    if (dto.getFormatCodeId() != null && !dto.getFormatCodeId().isEmpty()) {
+                        try {
+                            Code formatCode = codeRepository.findById(dto.getFormatCodeId())
+                                .orElse(null);
+                            newField.setFormat(formatCode);
+                        } catch (Exception e) {
+                            log.warn("형식 코드를 찾을 수 없습니다: {}", dto.getFormatCodeId());
+                        }
+                    }
+                    
+                    newFields.add(newField);
+                    log.info("새로운 필드 추가: {}", dto.getFieldId());
+                }
+            }
+            
+            // 4. 요청에 없는 필드는 삭제할 필드 목록에 추가
+            List<ContractPdfField> fieldsToDelete = new ArrayList<>();
+            Set<String> requestFieldIds = request.getFields().stream()
+                    .map(ContractPdfFieldDTO::getFieldId)
+                    .collect(Collectors.toSet());
+            
+            for (ContractPdfField field : template.getFields()) {
+                if (!requestFieldIds.contains(field.getFieldId())) {
+                    fieldsToDelete.add(field);
+                    log.info("필드 삭제 (ID: {}): {}", field.getId(), field.getFieldId());
+                }
+            }
+            
+            // 5. 삭제할 필드를 템플릿 필드 목록에서 제거
+            template.getFields().removeAll(fieldsToDelete);
+            
+            // 6. 데이터베이스에서 삭제할 필드 제거
+            for (ContractPdfField fieldToDelete : fieldsToDelete) {
+                contractPdfFieldRepository.delete(fieldToDelete);
+            }
+            
+            // 7. 새로운 필드만 데이터베이스에 저장하고 템플릿에 추가
+            if (!newFields.isEmpty()) {
+                contractPdfFieldRepository.saveAll(newFields);
+                template.getFields().addAll(newFields);
+            }
+            
+            // 8. 템플릿 저장 (필드 정보 업데이트만, PDF 재생성 없음)
+            ContractTemplate updatedTemplate = contractTemplateRepository.save(template);
+            log.info("템플릿 필드 업데이트 완료 (PDF 재생성 없음): {}", templateId);
+            
+            // 9. DTO로 변환하여 반환 (무한 순환 참조 방지)
+            return ResponseEntity.ok(new ContractTemplateDTO(updatedTemplate));
+        } catch (Exception e) {
+            log.error("템플릿 필드 업데이트 중 오류 발생", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
 } 
