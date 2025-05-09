@@ -36,7 +36,7 @@ public class Company {
     @Column(length = 10)
     private String trusteeCode;      // 수탁코드 (2600)
     
-    @Column(length = 20)
+    @Column(length = 100)            // 길이를 20에서 100으로 증가 (암호화 후 길이 고려)
     private String businessNumber;   // 사업자번호 (000-00-00000)
     
     @Column(length = 100)
@@ -63,19 +63,19 @@ public class Company {
     @Column(length = 50)
     private String managerName;      // 담당자 (정재현)
     
-    @Column(length = 100)
+    @Column(length = 200)            // 길이를 100에서 200으로 증가 (암호화 후 길이 고려)
     private String email;            // 이메일 (mail@mail.com)
     
     @Column(length = 10)
     private String subBusinessNumber; // 종사업장번호 (0103)
     
-    @Column(length = 20)
+    @Column(length = 100)            // 길이를 20에서 100으로 증가 (암호화 후 길이 고려)
     private String phoneNumber;      // 휴대폰번호 (010-0000-0000)
     
-    @Column(length = 20)
+    @Column(length = 100)            // 길이를 20에서 100으로 증가 (암호화 후 길이 고려)
     private String storeTelNumber;   // 매장 전화번호 (055-123-4567)
     
-    @Column(length = 255)
+    @Column(length = 500)            // 길이를 255에서 500으로 증가 (암호화 후 길이 고려)
     private String address;          // 주소 (경상남도 창원~~)
     
     @Column(length = 100)

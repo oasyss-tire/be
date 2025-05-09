@@ -1331,14 +1331,51 @@ public class ContractService {
                 contractData.put("trustee", trustee.getTrustee());
                 contractData.put("trusteeCode", trustee.getTrusteeCode());
                 contractData.put("representativeName", trustee.getRepresentativeName());
-                contractData.put("businessNumber", trustee.getBusinessNumber());
+                
+                // 암호화된 필드 복호화
+                try {
+                    // 사업자번호 복호화
+                    if (trustee.getBusinessNumber() != null && !trustee.getBusinessNumber().isEmpty()) {
+                        contractData.put("businessNumber", encryptionUtil.decrypt(trustee.getBusinessNumber()));
+                    } else {
+                        contractData.put("businessNumber", trustee.getBusinessNumber());
+                    }
+                    
+                    // 매장 전화번호 복호화
+                    if (trustee.getStoreTelNumber() != null && !trustee.getStoreTelNumber().isEmpty()) {
+                        contractData.put("storeTelNumber", encryptionUtil.decrypt(trustee.getStoreTelNumber()));
+                    } else {
+                        contractData.put("storeTelNumber", trustee.getStoreTelNumber());
+                    }
+                    
+                    // 이메일 복호화
+                    if (trustee.getEmail() != null && !trustee.getEmail().isEmpty()) {
+                        contractData.put("email", encryptionUtil.decrypt(trustee.getEmail()));
+                    } else {
+                        contractData.put("email", trustee.getEmail());
+                    }
+                    
+                    // 휴대폰번호 복호화
+                    if (trustee.getPhoneNumber() != null && !trustee.getPhoneNumber().isEmpty()) {
+                        contractData.put("phoneNumber", encryptionUtil.decrypt(trustee.getPhoneNumber()));
+                    } else {
+                        contractData.put("phoneNumber", trustee.getPhoneNumber());
+                    }
+                } catch (Exception e) {
+                    // 복호화 실패 시 원본 값 그대로 사용
+                    log.error("수탁자 정보 복호화 중 오류 발생: trusteeHistoryId={}, error={}", 
+                        trustee.getId(), e.getMessage());
+                    contractData.put("businessNumber", trustee.getBusinessNumber());
+                    contractData.put("storeTelNumber", trustee.getStoreTelNumber());
+                    contractData.put("email", trustee.getEmail());
+                    contractData.put("phoneNumber", trustee.getPhoneNumber());
+                }
+                
                 contractData.put("companyName", trustee.getCompanyName());
-                contractData.put("storeTelNumber", trustee.getStoreTelNumber());
                 contractData.put("managerName", trustee.getManagerName());
-                contractData.put("email", trustee.getEmail());
-                contractData.put("phoneNumber", trustee.getPhoneNumber());
                 contractData.put("businessType", trustee.getBusinessType());
                 contractData.put("businessCategory", trustee.getBusinessCategory());
+                contractData.put("subBusinessNumber", trustee.getSubBusinessNumber());
                 
                 // 시작일/종료일 정보
                 contractData.put("trusteeStartDate", trustee.getStartDate());
@@ -1428,15 +1465,51 @@ public class ContractService {
             result.put("trustee", trustee.getTrustee());
             result.put("trusteeCode", trustee.getTrusteeCode());
             result.put("representativeName", trustee.getRepresentativeName());
-            result.put("businessNumber", trustee.getBusinessNumber());
+            
+            // 암호화된 필드 복호화
+            try {
+                // 사업자번호 복호화
+                if (trustee.getBusinessNumber() != null && !trustee.getBusinessNumber().isEmpty()) {
+                    result.put("businessNumber", encryptionUtil.decrypt(trustee.getBusinessNumber()));
+                } else {
+                    result.put("businessNumber", trustee.getBusinessNumber());
+                }
+                
+                // 매장 전화번호 복호화
+                if (trustee.getStoreTelNumber() != null && !trustee.getStoreTelNumber().isEmpty()) {
+                    result.put("storeTelNumber", encryptionUtil.decrypt(trustee.getStoreTelNumber()));
+                } else {
+                    result.put("storeTelNumber", trustee.getStoreTelNumber());
+                }
+                
+                // 이메일 복호화
+                if (trustee.getEmail() != null && !trustee.getEmail().isEmpty()) {
+                    result.put("email", encryptionUtil.decrypt(trustee.getEmail()));
+                } else {
+                    result.put("email", trustee.getEmail());
+                }
+                
+                // 휴대폰번호 복호화
+                if (trustee.getPhoneNumber() != null && !trustee.getPhoneNumber().isEmpty()) {
+                    result.put("phoneNumber", encryptionUtil.decrypt(trustee.getPhoneNumber()));
+                } else {
+                    result.put("phoneNumber", trustee.getPhoneNumber());
+                }
+            } catch (Exception e) {
+                // 복호화 실패 시 원본 값 그대로 사용
+                log.error("수탁자 정보 복호화 중 오류 발생: trusteeHistoryId={}, error={}", 
+                    trustee.getId(), e.getMessage());
+                result.put("businessNumber", trustee.getBusinessNumber());
+                result.put("storeTelNumber", trustee.getStoreTelNumber());
+                result.put("email", trustee.getEmail());
+                result.put("phoneNumber", trustee.getPhoneNumber());
+            }
+            
             result.put("companyName", trustee.getCompanyName());
-            result.put("storeTelNumber", trustee.getStoreTelNumber());
             result.put("managerName", trustee.getManagerName());
-            result.put("email", trustee.getEmail());
-            result.put("phoneNumber", trustee.getPhoneNumber());
-            result.put("subBusinessNumber", trustee.getSubBusinessNumber());
             result.put("businessType", trustee.getBusinessType());
             result.put("businessCategory", trustee.getBusinessCategory());
+            result.put("subBusinessNumber", trustee.getSubBusinessNumber());
             
             // 시작일/종료일 정보
             result.put("trusteeStartDate", trustee.getStartDate());

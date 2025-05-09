@@ -120,19 +120,54 @@ public class TrusteeService {
         newHistory.setCompany(company);
         newHistory.setActive(false); // 스케줄러가 시작일에 활성화할 때까지 비활성 상태 유지
         
-        // TrusteeChangeRequest의 필드 정보 복사
+        // 새 수탁자 정보 설정 (요청으로 받은 데이터 사용)
         newHistory.setTrustee(request.getTrustee());
         newHistory.setTrusteeCode(request.getTrusteeCode());
         newHistory.setRepresentativeName(request.getRepresentativeName());
-        newHistory.setBusinessNumber(request.getBusinessNumber());
         newHistory.setCompanyName(request.getCompanyName());
         newHistory.setManagerName(request.getManagerName());
-        newHistory.setEmail(request.getEmail());
-        newHistory.setPhoneNumber(request.getPhoneNumber());
         newHistory.setSubBusinessNumber(request.getSubBusinessNumber());
-        newHistory.setStoreTelNumber(request.getStoreTelNumber());
         newHistory.setBusinessType(request.getBusinessType());
         newHistory.setBusinessCategory(request.getBusinessCategory());
+        
+        // 암호화가 필요한 필드 처리
+        try {
+            // 사업자번호 암호화
+            if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty()) {
+                newHistory.setBusinessNumber(encryptionUtil.encrypt(request.getBusinessNumber()));
+            } else {
+                newHistory.setBusinessNumber(request.getBusinessNumber());
+            }
+            
+            // 이메일 암호화
+            if (request.getEmail() != null && !request.getEmail().isEmpty()) {
+                newHistory.setEmail(encryptionUtil.encrypt(request.getEmail()));
+            } else {
+                newHistory.setEmail(request.getEmail());
+            }
+            
+            // 휴대폰번호 암호화
+            if (request.getPhoneNumber() != null && !request.getPhoneNumber().isEmpty()) {
+                newHistory.setPhoneNumber(encryptionUtil.encrypt(request.getPhoneNumber()));
+            } else {
+                newHistory.setPhoneNumber(request.getPhoneNumber());
+            }
+            
+            // 매장 전화번호 암호화
+            if (request.getStoreTelNumber() != null && !request.getStoreTelNumber().isEmpty()) {
+                newHistory.setStoreTelNumber(encryptionUtil.encrypt(request.getStoreTelNumber()));
+            } else {
+                newHistory.setStoreTelNumber(request.getStoreTelNumber());
+            }
+        } catch (Exception e) {
+            log.error("수탁자 정보 암호화 중 오류 발생: {}", e.getMessage(), e);
+            // 암호화 실패 시 원본 값 사용
+            newHistory.setBusinessNumber(request.getBusinessNumber());
+            newHistory.setEmail(request.getEmail());
+            newHistory.setPhoneNumber(request.getPhoneNumber());
+            newHistory.setStoreTelNumber(request.getStoreTelNumber());
+        }
+        
         newHistory.setStartDate(request.getStartDate());
         newHistory.setEndDate(request.getEndDate());
         newHistory.setInsuranceStartDate(request.getInsuranceStartDate());
@@ -344,7 +379,7 @@ public class TrusteeService {
                         participantRequest.setEmail(decryptedEmail);
                         participantRequest.setPhoneNumber(decryptedPhone);
                     } catch (Exception e) {
-                        log.error("참여자 정보 복호화 중 오류 발생: {}", e.getMessage(), e);
+                        log.error("참여자 정복화 중 오류 발생: {}", e.getMessage(), e);
                         // 복호화에 실패한 경우 원본 값 사용
                         participantRequest.setEmail(participant.getEmail());
                         participantRequest.setPhoneNumber(participant.getPhoneNumber());
@@ -498,9 +533,37 @@ public class TrusteeService {
                 dto.setTrustee(history.getTrustee());
                 dto.setTrusteeCode(history.getTrusteeCode());
                 dto.setRepresentativeName(history.getRepresentativeName());
-                dto.setBusinessNumber(history.getBusinessNumber());
-                dto.setPhoneNumber(history.getPhoneNumber());
-                dto.setEmail(history.getEmail());
+                
+                // 암호화된 필드 복호화
+                try {
+                    // 사업자번호 복호화
+                    if (history.getBusinessNumber() != null && !history.getBusinessNumber().isEmpty()) {
+                        dto.setBusinessNumber(encryptionUtil.decrypt(history.getBusinessNumber()));
+                    } else {
+                        dto.setBusinessNumber(history.getBusinessNumber());
+                    }
+                    
+                    // 휴대폰번호 복호화
+                    if (history.getPhoneNumber() != null && !history.getPhoneNumber().isEmpty()) {
+                        dto.setPhoneNumber(encryptionUtil.decrypt(history.getPhoneNumber()));
+                    } else {
+                        dto.setPhoneNumber(history.getPhoneNumber());
+                    }
+                    
+                    // 이메일 복호화
+                    if (history.getEmail() != null && !history.getEmail().isEmpty()) {
+                        dto.setEmail(encryptionUtil.decrypt(history.getEmail()));
+                    } else {
+                        dto.setEmail(history.getEmail());
+                    }
+                } catch (Exception e) {
+                    log.error("수탁자 이력 데이터 복호화 중 오류 발생: historyId={}, error={}", history.getId(), e.getMessage(), e);
+                    // 복호화 실패 시 원본 값 사용
+                    dto.setBusinessNumber(history.getBusinessNumber());
+                    dto.setPhoneNumber(history.getPhoneNumber());
+                    dto.setEmail(history.getEmail());
+                }
+                
                 dto.setStartDate(history.getStartDate());
                 dto.setEndDate(history.getEndDate());
                 dto.setInsuranceStartDate(history.getInsuranceStartDate());

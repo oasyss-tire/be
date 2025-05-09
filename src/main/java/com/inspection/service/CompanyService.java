@@ -73,6 +73,9 @@ public class CompanyService {
             company.setCreatedBy("시스템");
         }
         
+        // 민감한 개인정보 암호화
+        encryptCompanySensitiveData(company);
+        
         Company savedCompany = companyRepository.save(company);
         
         // CompanyTrusteeHistory 생성 및 저장
@@ -99,7 +102,12 @@ public class CompanyService {
                 savedCompany.getStoreNumber(),
                 savedCompany.getCreatedBy());
                 
-        return CompanyDTO.fromEntity(savedCompany);
+        CompanyDTO companyDTO = CompanyDTO.fromEntity(savedCompany);
+        
+        // DTO 반환 시 복호화 처리
+        decryptCompanyDTOSensitiveData(companyDTO);
+        
+        return companyDTO;
     }
     
     /**
@@ -124,13 +132,13 @@ public class CompanyService {
         user.setActive(true);
         user.setCompany(company);
         
-        // 개인정보 암호화
+        // 개인정보는 이미 암호화된 상태로 복사
         if (company.getEmail() != null && !company.getEmail().isEmpty()) {
-            user.setEmail(encryptionUtil.encrypt(company.getEmail()));
+            user.setEmail(company.getEmail());
         }
         
         if (company.getPhoneNumber() != null && !company.getPhoneNumber().isEmpty()) {
-            user.setPhoneNumber(encryptionUtil.encrypt(company.getPhoneNumber()));
+            user.setPhoneNumber(company.getPhoneNumber());
         }
         
         User savedUser = userRepository.save(user);
@@ -223,6 +231,7 @@ public class CompanyService {
     public List<CompanyDTO> getAllCompanies() {
         return companyRepository.findAll().stream()
             .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe)
             .collect(Collectors.toList());
     }
     
@@ -233,6 +242,7 @@ public class CompanyService {
     public List<CompanyDTO> getActiveCompanies() {
         return companyRepository.findByActiveTrue().stream()
             .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe)
             .collect(Collectors.toList());
     }
     
@@ -244,7 +254,12 @@ public class CompanyService {
         Company company = companyRepository.findWithImageById(companyId)
             .orElseThrow(() -> new RuntimeException("회사를 찾을 수 없습니다. ID: " + companyId));
         
-        return CompanyDTO.fromEntity(company);
+        CompanyDTO companyDTO = CompanyDTO.fromEntity(company);
+        
+        // 암호화된 정보 복호화
+        decryptCompanyDTOSensitiveData(companyDTO);
+        
+        return companyDTO;
     }
     
     /**
@@ -267,8 +282,10 @@ public class CompanyService {
             
             // 사업자번호 중복 체크 (변경된 경우)
             if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
-                !request.getBusinessNumber().equals(company.getBusinessNumber())) {
-                companyRepository.findByBusinessNumber(request.getBusinessNumber())
+                !encryptionUtil.encrypt(request.getBusinessNumber()).equals(company.getBusinessNumber())) {
+                
+                String encryptedBusinessNumber = encryptionUtil.encrypt(request.getBusinessNumber());
+                companyRepository.findByBusinessNumber(encryptedBusinessNumber)
                     .ifPresent(c -> {
                         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
                     });
@@ -295,13 +312,12 @@ public class CompanyService {
             // 기존 등록자 정보 저장 (수정 시에는 등록자 정보를 변경하지 않음)
             String originalCreatedBy = company.getCreatedBy();
             
-            // 회사 정보 업데이트
+            // 회사 정보 업데이트 (일반 필드)
             company.setStoreCode(request.getStoreCode());
             company.setStoreNumber(request.getStoreNumber());
             company.setStoreName(request.getStoreName());
             company.setTrustee(request.getTrustee());
             company.setTrusteeCode(request.getTrusteeCode());
-            company.setBusinessNumber(request.getBusinessNumber());
             company.setCompanyName(request.getCompanyName());
             company.setRepresentativeName(request.getRepresentativeName());
             company.setActive(request.isActive());
@@ -310,13 +326,39 @@ public class CompanyService {
             company.setInsuranceStartDate(request.getInsuranceStartDate());
             company.setInsuranceEndDate(request.getInsuranceEndDate());
             company.setManagerName(request.getManagerName());
-            company.setEmail(request.getEmail());
-            company.setSubBusinessNumber(request.getSubBusinessNumber());
-            company.setPhoneNumber(request.getPhoneNumber());
-            company.setStoreTelNumber(request.getStoreTelNumber());
-            company.setAddress(request.getAddress());
-            company.setBusinessType(request.getBusinessType());
-            company.setBusinessCategory(request.getBusinessCategory());
+            
+            // 민감 정보 필드 암호화하여 업데이트
+            if (request.getEmail() != null && !request.getEmail().isEmpty()) {
+                company.setEmail(encryptionUtil.encrypt(request.getEmail()));
+            }
+            
+            if (request.getSubBusinessNumber() != null && !request.getSubBusinessNumber().isEmpty()) {
+                company.setSubBusinessNumber(request.getSubBusinessNumber());
+            }
+            
+            if (request.getPhoneNumber() != null && !request.getPhoneNumber().isEmpty()) {
+                company.setPhoneNumber(encryptionUtil.encrypt(request.getPhoneNumber()));
+            }
+            
+            if (request.getStoreTelNumber() != null && !request.getStoreTelNumber().isEmpty()) {
+                company.setStoreTelNumber(encryptionUtil.encrypt(request.getStoreTelNumber()));
+            }
+            
+            if (request.getAddress() != null && !request.getAddress().isEmpty()) {
+                company.setAddress(encryptionUtil.encrypt(request.getAddress()));
+            }
+            
+            if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty()) {
+                company.setBusinessNumber(encryptionUtil.encrypt(request.getBusinessNumber()));
+            }
+            
+            if (request.getBusinessType() != null && !request.getBusinessType().isEmpty()) {
+                company.setBusinessType(request.getBusinessType());
+            }
+            
+            if (request.getBusinessCategory() != null && !request.getBusinessCategory().isEmpty()) {
+                company.setBusinessCategory(request.getBusinessCategory());
+            }
             
             // 기존 등록자 정보 복원 (수정 시에는 등록자 정보를 변경하지 않음)
             company.setCreatedBy(originalCreatedBy);
@@ -363,7 +405,10 @@ public class CompanyService {
                 log.warn("활성화된 수탁자 이력 업데이트 중 오류 발생: {}", e.getMessage(), e);
             }
             
-            return CompanyDTO.fromEntity(updatedCompany);
+            CompanyDTO updatedDTO = CompanyDTO.fromEntity(updatedCompany);
+            decryptCompanyDTOSensitiveData(updatedDTO);
+            
+            return updatedDTO;
         } catch (ResponseStatusException ex) {
             // 이미 ResponseStatusException인 경우 그대로 전달
             throw ex;
@@ -450,6 +495,7 @@ public class CompanyService {
     public List<CompanyDTO> searchCompaniesByName(String storeName) {
         return companyRepository.findByStoreNameContaining(storeName).stream()
             .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe)
             .collect(Collectors.toList());
     }
     
@@ -654,10 +700,17 @@ public class CompanyService {
 
         // 사업자번호 중복 체크
         if (StringUtils.hasText(request.getBusinessNumber())) {
-            companyRepository.findByBusinessNumber(request.getBusinessNumber())
-                    .ifPresent(company -> {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 사업자번호입니다: " + request.getBusinessNumber());
-                    });
+            try {
+                // 암호화된 사업자번호로 조회
+                String encryptedBusinessNumber = encryptionUtil.encrypt(request.getBusinessNumber());
+                companyRepository.findByBusinessNumber(encryptedBusinessNumber)
+                        .ifPresent(company -> {
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 사업자번호입니다: " + request.getBusinessNumber());
+                        });
+            } catch (Exception e) {
+                log.error("사업자번호 암호화 또는 중복 체크 중 오류 발생: {}", e.getMessage(), e);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "사업자번호 중복 체크 중 오류가 발생했습니다.");
+            }
         }
             
         // 수탁코드 중복 체크 (값이 있는 경우에만)
@@ -722,7 +775,7 @@ public class CompanyService {
         
         for (CreateCompanyRequest request : requests) {
             try {
-                // 회사 정보 생성
+                // 회사 정보 생성 (내부적으로 암호화 처리됨)
                 CompanyDTO createdCompany = createCompany(request);
                 
                 // 성공 정보 추가
@@ -770,7 +823,8 @@ public class CompanyService {
     @Transactional(readOnly = true)
     public Page<CompanyDTO> getAllCompaniesWithPaging(Pageable pageable) {
         return companyRepository.findAll(pageable)
-            .map(CompanyDTO::fromEntity);
+            .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe);
     }
     
     /**
@@ -779,7 +833,8 @@ public class CompanyService {
     @Transactional(readOnly = true)
     public Page<CompanyDTO> getActiveCompaniesWithPaging(Pageable pageable) {
         return companyRepository.findByActiveTrue(pageable)
-            .map(CompanyDTO::fromEntity);
+            .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe);
     }
     
     /**
@@ -788,7 +843,8 @@ public class CompanyService {
     @Transactional(readOnly = true)
     public Page<CompanyDTO> searchCompaniesByNameWithPaging(String storeName, Pageable pageable) {
         return companyRepository.findByStoreNameContaining(storeName, pageable)
-            .map(CompanyDTO::fromEntity);
+            .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe);
     }
     
     /**
@@ -798,6 +854,86 @@ public class CompanyService {
     public Page<CompanyDTO> searchCompaniesByKeywordWithPaging(String keyword, Pageable pageable) {
         return companyRepository.findByStoreNameContainingOrBusinessNumberContainingOrStoreCodeContaining(
                 keyword, keyword, keyword, pageable)
-            .map(CompanyDTO::fromEntity);
+            .map(CompanyDTO::fromEntity)
+            .map(this::decryptCompanyDTOSensitiveDataSafe);
+    }
+
+    /**
+     * 회사의 민감한 개인정보를 암호화합니다.
+     */
+    private void encryptCompanySensitiveData(Company company) {
+        try {
+            // 1. 연락처 정보 암호화
+            if (company.getPhoneNumber() != null && !company.getPhoneNumber().isEmpty()) {
+                company.setPhoneNumber(encryptionUtil.encrypt(company.getPhoneNumber()));
+            }
+            
+            if (company.getEmail() != null && !company.getEmail().isEmpty()) {
+                company.setEmail(encryptionUtil.encrypt(company.getEmail()));
+            }
+            
+            if (company.getStoreTelNumber() != null && !company.getStoreTelNumber().isEmpty()) {
+                company.setStoreTelNumber(encryptionUtil.encrypt(company.getStoreTelNumber()));
+            }
+            
+            // 2. 개인 식별 정보 암호화
+            if (company.getAddress() != null && !company.getAddress().isEmpty()) {
+                company.setAddress(encryptionUtil.encrypt(company.getAddress()));
+            }
+            
+            if (company.getBusinessNumber() != null && !company.getBusinessNumber().isEmpty()) {
+                company.setBusinessNumber(encryptionUtil.encrypt(company.getBusinessNumber()));
+            }
+            
+            log.info("회사 개인정보 암호화 완료: {}", company.getStoreName());
+        } catch (Exception e) {
+            log.error("회사 개인정보 암호화 중 오류 발생: {}", e.getMessage(), e);
+            throw new RuntimeException("개인정보 암호화 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * 회사 DTO의 민감한 개인정보를 복호화합니다.
+     */
+    private void decryptCompanyDTOSensitiveData(CompanyDTO companyDTO) {
+        try {
+            // 1. 연락처 정보 복호화
+            if (companyDTO.getPhoneNumber() != null && !companyDTO.getPhoneNumber().isEmpty()) {
+                companyDTO.setPhoneNumber(encryptionUtil.decrypt(companyDTO.getPhoneNumber()));
+            }
+            
+            if (companyDTO.getEmail() != null && !companyDTO.getEmail().isEmpty()) {
+                companyDTO.setEmail(encryptionUtil.decrypt(companyDTO.getEmail()));
+            }
+            
+            if (companyDTO.getStoreTelNumber() != null && !companyDTO.getStoreTelNumber().isEmpty()) {
+                companyDTO.setStoreTelNumber(encryptionUtil.decrypt(companyDTO.getStoreTelNumber()));
+            }
+            
+            // 2. 개인 식별 정보 복호화
+            if (companyDTO.getAddress() != null && !companyDTO.getAddress().isEmpty()) {
+                companyDTO.setAddress(encryptionUtil.decrypt(companyDTO.getAddress()));
+            }
+            
+            if (companyDTO.getBusinessNumber() != null && !companyDTO.getBusinessNumber().isEmpty()) {
+                companyDTO.setBusinessNumber(encryptionUtil.decrypt(companyDTO.getBusinessNumber()));
+            }
+        } catch (Exception e) {
+            log.error("회사 개인정보 복호화 중 오류 발생: {}", e.getMessage(), e);
+            // 복호화 실패 시 원본 값 유지
+        }
+    }
+
+    /**
+     * 회사 DTO의 민감한 정보를 안전하게 복호화합니다.
+     * 복호화 중 오류가 발생하면 원본 값을 유지합니다.
+     */
+    private CompanyDTO decryptCompanyDTOSensitiveDataSafe(CompanyDTO dto) {
+        try {
+            decryptCompanyDTOSensitiveData(dto);
+        } catch (Exception e) {
+            log.warn("회사 정보 복호화 중 오류 발생: {}, companyId: {}", e.getMessage(), dto.getId());
+        }
+        return dto;
     }
 } 
