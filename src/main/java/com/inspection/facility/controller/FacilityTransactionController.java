@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,8 +22,11 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inspection.facility.dto.CancellationRequest;
 import com.inspection.facility.dto.DisposeTransactionRequest;
 import com.inspection.facility.dto.FacilityTransactionDTO;
@@ -35,6 +39,7 @@ import com.inspection.facility.dto.ServiceTransactionRequest;
 import com.inspection.facility.dto.TransactionUpdateDTO;
 import com.inspection.facility.entity.FacilityTransaction;
 import com.inspection.facility.service.FacilityTransactionService;
+import com.inspection.facility.service.FacilityTransactionImageService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +52,7 @@ import lombok.extern.slf4j.Slf4j;
 public class FacilityTransactionController {
     
     private final FacilityTransactionService transactionService;
+    private final FacilityTransactionImageService transactionImageService;
     
     /**
      * 트랜잭션 전체 목록 조회
@@ -137,6 +143,50 @@ public class FacilityTransactionController {
     }
     
     /**
+     * 이동 트랜잭션 처리 (이미지 첨부 지원)
+     */
+    @PostMapping(value = "/move-with-images")
+    public ResponseEntity<FacilityTransactionDTO> processMoveWithImages(
+            @RequestParam("request") String requestJson,
+            @RequestParam(value = "images", required = false) MultipartFile[] images) {
+        
+        try {
+            // DTO 필드명에 맞게 JSON을 전송해야 함 (fromCompanyId, toCompanyId)
+            ObjectMapper objectMapper = new ObjectMapper();
+            MoveTransactionRequest request = objectMapper.readValue(requestJson, MoveTransactionRequest.class);
+            
+            log.info("이미지 첨부 이동 트랜잭션 요청: 시설물 ID={}, 출발 회사 ID={}, 도착 회사 ID={}", 
+                    request.getFacilityId(), request.getFromCompanyId(), request.getToCompanyId());
+            
+            // 기본 이동 트랜잭션 처리
+            FacilityTransactionDTO result = transactionService.processMove(request);
+            
+            // 이미지가 제공된 경우 업로드 처리
+            if (images != null && images.length > 0) {
+                for (MultipartFile image : images) {
+                    if (!image.isEmpty()) {
+                        try {
+                            transactionImageService.uploadTransactionImage(
+                                    result.getTransactionId(), 
+                                    image, 
+                                    "002005_0006", // 기본 이미지 타입
+                                    getCurrentUserId());
+                        } catch (Exception e) {
+                            log.error("이동 트랜잭션 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
+                            // 이미지 업로드 실패가 트랜잭션 자체를 실패시키지 않도록 예외 처리
+                        }
+                    }
+                }
+            }
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(result);
+        } catch (Exception e) {
+            log.error("이동 트랜잭션 요청 처리 중 오류: {}", e.getMessage(), e);
+            throw new RuntimeException("이동 트랜잭션 처리 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
      * 대여 트랜잭션 처리
      */
     @PostMapping("/rental")
@@ -174,6 +224,50 @@ public class FacilityTransactionController {
     public ResponseEntity<FacilityTransactionDTO> processDispose(@Valid @RequestBody DisposeTransactionRequest request) {
         FacilityTransactionDTO result = transactionService.processDispose(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(result);
+    }
+    
+    /**
+     * 폐기 트랜잭션 처리 (이미지 첨부 지원)
+     */
+    @PostMapping(value = "/dispose-with-images")
+    public ResponseEntity<FacilityTransactionDTO> processDisposeWithImages(
+            @RequestParam("request") String requestJson,
+            @RequestParam(value = "images", required = false) MultipartFile[] images) {
+        
+        try {
+            // DTO 필드명에 맞게 JSON을 전송해야 함 (facilityId, notes)
+            ObjectMapper objectMapper = new ObjectMapper();
+            DisposeTransactionRequest request = objectMapper.readValue(requestJson, DisposeTransactionRequest.class);
+            
+            log.info("이미지 첨부 폐기 트랜잭션 요청: 시설물 ID={}, 폐기 사유={}", 
+                    request.getFacilityId(), request.getNotes());
+            
+            // 기본 폐기 트랜잭션 처리
+            FacilityTransactionDTO result = transactionService.processDispose(request);
+            
+            // 이미지가 제공된 경우 업로드 처리
+            if (images != null && images.length > 0) {
+                for (MultipartFile image : images) {
+                    if (!image.isEmpty()) {
+                        try {
+                            transactionImageService.uploadTransactionImage(
+                                    result.getTransactionId(), 
+                                    image, 
+                                    "002005_0007", // 기본 이미지 타입
+                                    getCurrentUserId());
+                        } catch (Exception e) {
+                            log.error("폐기 트랜잭션 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
+                            // 이미지 업로드 실패가 트랜잭션 자체를 실패시키지 않도록 예외 처리
+                        }
+                    }
+                }
+            }
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(result);
+        } catch (Exception e) {
+            log.error("폐기 트랜잭션 요청 처리 중 오류: {}", e.getMessage(), e);
+            throw new RuntimeException("폐기 트랜잭션 처리 중 오류가 발생했습니다.", e);
+        }
     }
     
     /**
