@@ -102,6 +102,9 @@ public class ServiceRequest {
     @OneToMany(mappedBy = "serviceRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ServiceHistory> serviceHistories;
     
+    @OneToMany(mappedBy = "serviceRequest", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ServiceRequestImage> images;
+    
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;  // 생성일자

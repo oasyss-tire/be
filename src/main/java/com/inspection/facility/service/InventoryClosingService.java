@@ -12,6 +12,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +48,57 @@ public class InventoryClosingService {
     private final CodeRepository codeRepository;
     private final UserRepository userRepository;
 
+    // 캐시 맵 (회사ID_시설물유형ID -> 최근 마감 데이터)
+    private final Map<String, DailyInventoryClosing> latestClosingCache = new HashMap<>();
+    private LocalDateTime cacheLastUpdated = LocalDateTime.now().minusHours(1); // 초기값은 1시간 전
+    private final long CACHE_EXPIRY_SECONDS = 300; // 5분 캐시 만료
+    private boolean isCacheInitialized = false;
+
+    /**
+     * 캐시 초기화 메서드
+     * 자주 조회되는 회사와 시설물 유형에 대한 마감 데이터를 미리 로드
+     */
+    private synchronized void initializeCache() {
+        if (isCacheInitialized) {
+            return;
+        }
+        
+        try {
+            log.info("캐시 초기화 시작...");
+            long startTime = System.currentTimeMillis();
+            
+            // 모든 회사 조회
+            List<Company> companies = companyRepository.findAll();
+            
+            // 모든 시설물 유형 조회
+            List<Code> facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
+            
+            // 주요 회사-시설물 유형 조합에 대한 최신 마감 데이터 미리 로드
+            for (Company company : companies) {
+                for (Code facilityType : facilityTypes) {
+                    String key = company.getId() + "_" + facilityType.getCodeId();
+                    
+                    // DB에서 최신 마감 데이터 조회
+                    Optional<DailyInventoryClosing> latestClosingOpt = dailyClosingRepository
+                            .findTopByCompanyIdAndFacilityTypeCodeIdAndIsClosedTrueOrderByClosingDateDesc(
+                                    company.getId(), facilityType.getCodeId());
+                    
+                    // 캐시에 저장
+                    latestClosingOpt.ifPresent(closing -> latestClosingCache.put(key, closing));
+                }
+            }
+            
+            cacheLastUpdated = LocalDateTime.now();
+            isCacheInitialized = true;
+            
+            long endTime = System.currentTimeMillis();
+            log.info("캐시 초기화 완료: {}개 항목 로드, 소요시간: {}ms", 
+                    latestClosingCache.size(), (endTime - startTime));
+        } catch (Exception e) {
+            log.error("캐시 초기화 중 오류: {}", e.getMessage());
+        }
+    }
+    
     /**
      * 특정 날짜의 일일 마감 처리
      * @param closingDate 마감 날짜
@@ -55,6 +108,7 @@ public class InventoryClosingService {
     @Transactional
     public int processDailyClosing(LocalDate closingDate, String userId) {
         log.info("일일 마감 처리 시작: {}", closingDate);
+        long startTime = System.currentTimeMillis();
         
         // 사용자 조회
         User user = userRepository.findByUserId(userId)
@@ -73,8 +127,22 @@ public class InventoryClosingService {
         // 3. 모든 시설물 유형 코드 조회 (시설물 유형 코드 그룹 ID는 '002001')
         List<Code> facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
         
+        log.info("마감 처리 준비 완료: 회사 {}개, 시설물 유형 {}개", companies.size(), facilityTypes.size());
+        
+        // 기존 마감 데이터를 맵으로 변환하여 조회 속도 향상
+        Map<String, DailyInventoryClosing> existingClosingMap = new HashMap<>();
+        for (DailyInventoryClosing closing : existingClosings) {
+            String key = closing.getCompany().getId() + "_" + closing.getFacilityType().getCodeId();
+            existingClosingMap.put(key, closing);
+        }
+        
+        // 이전 마감 데이터와 시간을 캐싱하기 위한 맵
+        Map<String, Integer> previousQuantityCache = new HashMap<>();
+        Map<String, LocalDateTime> lastClosingTimeCache = new HashMap<>();
+        
         List<DailyInventoryClosing> closingsToSave = new ArrayList<>();
         int processedCount = 0;
+        int batchSize = 100;  // 배치 저장 크기
         
         // 현재 처리 시작 시간 기록
         LocalDateTime currentProcessingTime = LocalDateTime.now();
@@ -82,55 +150,12 @@ public class InventoryClosingService {
         // 4. 각 회사와 시설물 유형 조합에 대한 마감 데이터 생성
         for (Company company : companies) {
             for (Code facilityType : facilityTypes) {
-                // 4.1 해당 조합의 기존 마감 데이터 확인
-                Optional<DailyInventoryClosing> existingClosingOpt = dailyClosingRepository
-                        .findByClosingDateAndCompanyIdAndFacilityTypeCodeId(
-                                closingDate, company.getId(), facilityType.getCodeId());
+                String key = company.getId() + "_" + facilityType.getCodeId();
                 
-                // 4.2 직전 날짜의 마감 데이터 조회 (이전 날짜 마감 데이터 찾기)
-                // 가장 최근 마감 데이터가 아닌 정확히 직전 날짜의 마감 데이터를 찾음
-                LocalDate previousDay = closingDate.minusDays(1); // 정확히 하루 전 날짜
-                Optional<DailyInventoryClosing> previousClosingOpt = dailyClosingRepository
-                        .findByClosingDateAndCompanyIdAndFacilityTypeCodeIdAndIsClosed(
-                                previousDay, company.getId(), facilityType.getCodeId(), true);
+                // 4.1 해당 조합의 기존 마감 데이터 확인 (캐시된 맵 활용)
+                DailyInventoryClosing closingData = existingClosingMap.get(key);
                 
-                // 전일 마감 수량과 마감 시간 설정
-                int previousDayQuantity = 0;
-                LocalDateTime lastClosingTime = LocalDateTime.of(2000, 1, 1, 0, 0); // 매우 과거 시간
-                
-                if (previousClosingOpt.isPresent()) {
-                    DailyInventoryClosing previousClosing = previousClosingOpt.get();
-                    
-                    // 직전 날짜의 마감 데이터이므로 별도 검증 없이 사용
-                    previousDayQuantity = previousClosing.getClosingQuantity();
-                    
-                    // 이전 마감 시간 설정 (마감 시간이 없으면 생성 시간 사용)
-                    lastClosingTime = previousClosing.getClosedAt() != null ? 
-                            previousClosing.getClosedAt() : previousClosing.getCreatedAt();
-                } else {
-                    // 직전 날짜의 마감이 없으면, 더 이전 날짜의 마감 찾기 (최대 30일)
-                    for (int i = 2; i <= 30; i++) {
-                        LocalDate olderDay = closingDate.minusDays(i);
-                        Optional<DailyInventoryClosing> olderClosingOpt = dailyClosingRepository
-                                .findByClosingDateAndCompanyIdAndFacilityTypeCodeIdAndIsClosed(
-                                        olderDay, company.getId(), facilityType.getCodeId(), true);
-                        
-                        if (olderClosingOpt.isPresent()) {
-                            DailyInventoryClosing olderClosing = olderClosingOpt.get();
-                            previousDayQuantity = olderClosing.getClosingQuantity();
-                            lastClosingTime = olderClosing.getClosedAt() != null ? 
-                                    olderClosing.getClosedAt() : olderClosing.getCreatedAt();
-                            break;
-                        }
-                    }
-                }
-                
-                // 4.3 마감 처리 시작 시간 기록을 위한 객체 생성/업데이트
-                DailyInventoryClosing closingData;
-                if (existingClosingOpt.isPresent()) {
-                    // 기존 데이터 업데이트
-                    closingData = existingClosingOpt.get();
-                } else {
+                if (closingData == null) {
                     // 새 데이터 생성
                     closingData = new DailyInventoryClosing();
                     closingData.setClosingDate(closingDate);
@@ -140,7 +165,50 @@ public class InventoryClosingService {
                 
                 // 처리 시작 시간 설정
                 closingData.setProcessStartTime(currentProcessingTime);
-                closingData = dailyClosingRepository.save(closingData); // 저장하여 ID 생성
+                
+                // 일괄 저장을 위해 먼저 ID가 필요한 경우만 저장
+                if (closingData.getId() == null) {
+                    closingData = dailyClosingRepository.save(closingData);
+                }
+                
+                // 4.2 이전 마감 데이터 조회 (캐시 먼저 확인)
+                int previousDayQuantity = 0;
+                LocalDateTime lastClosingTime = LocalDateTime.of(2000, 1, 1, 0, 0); // 기본값
+                
+                if (previousQuantityCache.containsKey(key)) {
+                    // 캐시에서 가져오기
+                    previousDayQuantity = previousQuantityCache.get(key);
+                    lastClosingTime = lastClosingTimeCache.get(key);
+                } else {
+                    // 직전 날짜의 마감 데이터를 효율적으로 조회
+                    LocalDate previousDay = closingDate.minusDays(1);
+                    Optional<DailyInventoryClosing> previousClosingOpt = dailyClosingRepository
+                            .findByClosingDateAndCompanyIdAndFacilityTypeCodeIdAndIsClosed(
+                                    previousDay, company.getId(), facilityType.getCodeId(), true);
+                    
+                    if (previousClosingOpt.isPresent()) {
+                        DailyInventoryClosing previousClosing = previousClosingOpt.get();
+                        previousDayQuantity = previousClosing.getClosingQuantity();
+                        lastClosingTime = previousClosing.getClosedAt() != null ? 
+                                previousClosing.getClosedAt() : previousClosing.getCreatedAt();
+                    } else {
+                        // 이전 날짜를 일괄 조회 (루프 최적화)
+                        Optional<DailyInventoryClosing> olderClosingOpt = dailyClosingRepository
+                                .findTopByCompanyIdAndFacilityTypeCodeIdAndClosingDateBeforeAndIsClosedTrueOrderByClosingDateDesc(
+                                        company.getId(), facilityType.getCodeId(), closingDate);
+                        
+                        if (olderClosingOpt.isPresent()) {
+                            DailyInventoryClosing olderClosing = olderClosingOpt.get();
+                            previousDayQuantity = olderClosing.getClosingQuantity();
+                            lastClosingTime = olderClosing.getClosedAt() != null ? 
+                                    olderClosing.getClosedAt() : olderClosing.getCreatedAt();
+                        }
+                    }
+                    
+                    // 결과를 캐시에 저장
+                    previousQuantityCache.put(key, previousDayQuantity);
+                    lastClosingTimeCache.put(key, lastClosingTime);
+                }
                 
                 // 4.4 마지막 마감 시간부터 현재 처리 시작 시간까지의 트랜잭션 조회
                 // 입고 수량 계산
@@ -165,13 +233,23 @@ public class InventoryClosingService {
                 
                 closingsToSave.add(closingData);
                 processedCount++;
+                
+                // 배치 크기에 도달하면 일괄 저장 후 리스트 비우기
+                if (closingsToSave.size() >= batchSize) {
+                    dailyClosingRepository.saveAll(closingsToSave);
+                    log.info("일마감 처리 진행 중: {}개 완료", processedCount);
+                    closingsToSave.clear();
+                }
             }
         }
         
-        // 5. 데이터 저장
-        dailyClosingRepository.saveAll(closingsToSave);
+        // 5. 남은 데이터 일괄 저장
+        if (!closingsToSave.isEmpty()) {
+            dailyClosingRepository.saveAll(closingsToSave);
+        }
         
-        log.info("일일 마감 처리 완료: {}, 처리 건수: {}", closingDate, processedCount);
+        long endTime = System.currentTimeMillis();
+        log.info("일일 마감 처리 완료: {}, 처리 건수: {}, 소요시간: {}ms", closingDate, processedCount, (endTime - startTime));
         return processedCount;
     }
     
@@ -430,147 +508,255 @@ public class InventoryClosingService {
     }
     
     /**
+     * 캐시된 최신 마감 데이터를 가져오는 메서드
+     * @param companyId 회사 ID
+     * @param facilityTypeCodeId 시설물 유형 코드 ID
+     * @return 최신 마감 데이터 (Optional)
+     */
+    private Optional<DailyInventoryClosing> getCachedLatestClosing(Long companyId, String facilityTypeCodeId) {
+        // 캐시가 초기화되지 않았으면 초기화
+        if (!isCacheInitialized) {
+            initializeCache();
+        }
+        
+        String key = companyId + "_" + facilityTypeCodeId;
+        
+        // 캐시가 만료되었는지 확인
+        if (LocalDateTime.now().isAfter(cacheLastUpdated.plusSeconds(CACHE_EXPIRY_SECONDS))) {
+            log.trace("캐시가 만료되어 초기화합니다.");
+            synchronized (this) {
+                if (LocalDateTime.now().isAfter(cacheLastUpdated.plusSeconds(CACHE_EXPIRY_SECONDS))) {
+                    isCacheInitialized = false;
+                    latestClosingCache.clear();
+                    initializeCache();
+                }
+            }
+        }
+        
+        // 캐시에 있으면 반환
+        if (latestClosingCache.containsKey(key)) {
+            return Optional.ofNullable(latestClosingCache.get(key));
+        }
+        
+        // 캐시에 없으면 DB에서 조회
+        try {
+            Optional<DailyInventoryClosing> latestClosingOpt = dailyClosingRepository
+                    .findTopByCompanyIdAndFacilityTypeCodeIdAndIsClosedTrueOrderByClosingDateDesc(
+                            companyId, facilityTypeCodeId);
+            
+            // 캐시에 저장
+            latestClosingOpt.ifPresent(closing -> {
+                synchronized (latestClosingCache) {
+                    latestClosingCache.put(key, closing);
+                }
+            });
+            
+            return latestClosingOpt;
+        } catch (Exception e) {
+            log.error("최신 마감 데이터 조회 중 오류: 회사={}, 시설물유형={}, 오류={}", 
+                    companyId, facilityTypeCodeId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+    
+    /**
      * 현재 시점의 재고 상태 조회
      * @param companyId 회사 ID (선택적)
      * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
      * @return 현재 재고 상태 DTO 목록
      */
     public List<CurrentInventoryStatusDTO> getCurrentInventoryStatus(Long companyId, String facilityTypeCodeId) {
-        LocalDate today = LocalDate.now();
+        log.info("현재 재고 현황 조회 요청: 회사ID: {}, 시설물유형: {}", companyId, facilityTypeCodeId);
+        // 캐시를 사용하는 메서드 호출
+        return getCurrentInventoryStatusCached(companyId, facilityTypeCodeId);
+    }
+    
+    /**
+     * 현재 시점의 재고 상태 조회 (캐시 사용)
+     * @param companyId 회사 ID (선택적)
+     * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
+     * @return 현재 재고 상태 DTO 목록
+     */
+    public List<CurrentInventoryStatusDTO> getCurrentInventoryStatusCached(Long companyId, String facilityTypeCodeId) {
+        log.info("캐시 사용 현재 재고 현황 조회 요청: 회사ID: {}, 시설물유형: {}", companyId, facilityTypeCodeId);
+        long startTime = System.currentTimeMillis();
+        
         List<CurrentInventoryStatusDTO> result = new ArrayList<>();
         
-        // 1. 회사 목록 조회
-        List<Company> companies;
-        if (companyId != null) {
-            companies = companyRepository.findById(companyId)
-                    .map(List::of)
-                    .orElse(List.of());
-        } else {
-            companies = companyRepository.findAll();
-        }
-        
-        // 2. 시설물 유형 목록 조회
-        List<Code> facilityTypes;
-        if (facilityTypeCodeId != null) {
-            facilityTypes = codeRepository.findById(facilityTypeCodeId)
-                    .map(List::of)
-                    .orElse(List.of());
-        } else {
-            facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
-        }
-        
-        // 3. 조회 대상 조합(회사+시설물 유형) 식별을 위한 맵
-        Map<String, Boolean> processedCombinations = new HashMap<>();
-        
-        // 4. 일마감 데이터 기반 재고 조회
-        for (Company company : companies) {
-            for (Code facilityType : facilityTypes) {
-                String combinationKey = company.getId() + "_" + facilityType.getCodeId();
-                
-                // 4.1 가장 최근 일일 마감 데이터 조회
-                Optional<DailyInventoryClosing> latestClosingOpt = dailyClosingRepository
-                        .findTopByCompanyIdAndFacilityTypeCodeIdAndIsClosedTrueOrderByClosingDateDesc(
-                                company.getId(), facilityType.getCodeId());
-                
-                // 마감 데이터가 있는 경우 처리
-                if (latestClosingOpt.isPresent()) {
-                    DailyInventoryClosing latestClosing = latestClosingOpt.get();
-                    LocalDate latestClosingDate = latestClosing.getClosingDate();
-                    LocalDateTime latestClosingTime = latestClosing.getClosedAt();
-                    
-                    // 최근 마감 이후부터 현재까지의 트랜잭션 집계
-                    LocalDateTime currentTime = LocalDateTime.now();
-                    
-                    // 입고 트랜잭션 계산 (취소되지 않은 트랜잭션들)
-                    int recentInbound = transactionRepository.countInboundTransactionsBetweenClosingTimes(
-                            latestClosingTime, currentTime, company.getId(), facilityType.getCodeId());
-                    
-                    // 출고 트랜잭션 계산 (취소되지 않은 트랜잭션들)
-                    int recentOutbound = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
-                            latestClosingTime, currentTime, company.getId(), facilityType.getCodeId());
-                    
-                    // 현재 재고 수량 계산
-                    int currentQuantity = latestClosing.getClosingQuantity() + recentInbound - recentOutbound;
-                    
-                    // 결과 추가
-                    result.add(CurrentInventoryStatusDTO.builder()
-                            .companyId(company.getId())
-                            .companyName(company.getStoreName())
-                            .facilityTypeCodeId(facilityType.getCodeId())
-                            .facilityTypeName(facilityType.getCodeName())
-                            .latestClosingDate(latestClosingDate)
-                            .baseQuantity(latestClosing.getClosingQuantity())
-                            .recentInbound(recentInbound)
-                            .recentOutbound(recentOutbound)
-                            .currentQuantity(currentQuantity)
-                            .build());
-                    
-                    // 처리 완료 표시
-                    processedCombinations.put(combinationKey, true);
-                }
+        try {
+            // 1. 회사 목록 조회
+            List<Company> companies;
+            if (companyId != null) {
+                companies = companyRepository.findById(companyId)
+                        .map(List::of)
+                        .orElse(List.of());
+            } else {
+                companies = companyRepository.findAll();
             }
-        }
-        
-        // 5. 마감 데이터는 없지만 트랜잭션이 있는 조합 조회
-        // 5.1 모든 트랜잭션 집합 추출 (회사와 시설물 유형 조합)
-        LocalDateTime veryPastTime = LocalDateTime.of(2000, 1, 1, 0, 0); // 매우 과거 시간
-        LocalDateTime currentTime = LocalDateTime.now();
-        
-        // 각 회사의 트랜잭션 조회 (폐기 상태가 아닌 시설물 위주로)
-        for (Company company : companies) {
-            // 트랜잭션이 존재하는 시설물 가져오기 (폐기 상태가 아닌 시설물 중심)
-            List<FacilityTransaction> allTransactions = transactionRepository.findActiveFacilitiesByCompanyIdAndTransactionDateAfter(
-                    company.getId(), veryPastTime);
-                    
-            // 각 트랜잭션에서 시설물 유형 추출 및 중복 제거
-            Set<String> facilityTypesInTransactions = allTransactions.stream()
-                    .map(tx -> tx.getFacility().getFacilityType().getCodeId())
-                    .collect(Collectors.toSet());
             
-            // 시설물 유형 필터링 (특정 시설물 유형만 조회 요청된 경우)
+            // 2. 시설물 유형 목록 조회
+            List<Code> facilityTypes;
             if (facilityTypeCodeId != null) {
-                facilityTypesInTransactions.removeIf(typeId -> !typeId.equals(facilityTypeCodeId));
+                facilityTypes = codeRepository.findById(facilityTypeCodeId)
+                        .map(List::of)
+                        .orElse(List.of());
+            } else {
+                facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
             }
             
-            // 각 시설물 유형에 대해 마감 데이터가 없는 경우 처리
-            for (String typeId : facilityTypesInTransactions) {
-                String combinationKey = company.getId() + "_" + typeId;
-                
-                // 이미 처리된 조합은 건너뜀
-                if (processedCombinations.containsKey(combinationKey)) {
-                    continue;
-                }
-                
-                // 해당 시설물 유형 코드 조회
-                Code facilityType = codeRepository.findById(typeId).orElse(null);
-                if (facilityType == null) continue;
-                
-                // 입고/출고 수량 계산
-                int totalInbound = transactionRepository.countInboundTransactionsBetweenClosingTimes(
-                        veryPastTime, currentTime, company.getId(), typeId);
-                        
-                int totalOutbound = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
-                        veryPastTime, currentTime, company.getId(), typeId);
-                
-                // 현재 재고 = 총 입고 - 총 출고
-                int currentQuantity = totalInbound - totalOutbound;
-                
-                // 결과 추가 (마감 기준 수량 없음)
-                result.add(CurrentInventoryStatusDTO.builder()
-                        .companyId(company.getId())
-                        .companyName(company.getStoreName())
-                        .facilityTypeCodeId(typeId)
-                        .facilityTypeName(facilityType.getCodeName())
-                        .latestClosingDate(null)  // 마감 날짜 없음
-                        .baseQuantity(0)          // 기준 수량 0
-                        .recentInbound(totalInbound)
-                        .recentOutbound(totalOutbound)
-                        .currentQuantity(currentQuantity)
-                        .build());
+            log.debug("조회 대상: 회사 {}개, 시설물 유형 {}개", companies.size(), facilityTypes.size());
+            
+            if (companies.isEmpty()) {
+                log.warn("조회할 회사가 없습니다. 회사ID: {}", companyId);
+                return createEmptyResultWithDefaultData(facilityTypes);
             }
+            
+            if (facilityTypes.isEmpty()) {
+                log.warn("조회할 시설물 유형이 없습니다. 시설물유형ID: {}", facilityTypeCodeId);
+                return createEmptyResultWithDefaultData(null);
+            }
+            
+            // 3. 현재 시간 (모든 트랜잭션에 공통으로 사용)
+            LocalDateTime currentTime = LocalDateTime.now();
+            
+            // 4. 각 회사와 시설물 유형 조합에 대해 처리
+            for (Company company : companies) {
+                for (Code facilityType : facilityTypes) {
+                    String key = company.getId() + "_" + facilityType.getCodeId();
+                    
+                    try {
+                        // 캐시에서 최신 마감 데이터 조회
+                        Optional<DailyInventoryClosing> latestClosingOpt = getCachedLatestClosing(
+                                company.getId(), facilityType.getCodeId());
+                        
+                        if (latestClosingOpt.isPresent()) {
+                            DailyInventoryClosing latestClosing = latestClosingOpt.get();
+                            LocalDate latestClosingDate = latestClosing.getClosingDate();
+                            LocalDateTime latestClosingTime = latestClosing.getClosedAt() != null ? 
+                                    latestClosing.getClosedAt() : latestClosing.getCreatedAt();
+                            
+                            // 최근 마감 이후의 트랜잭션 조회
+                            int recentInbound = transactionRepository.countInboundTransactionsBetweenClosingTimes(
+                                    latestClosingTime, currentTime, company.getId(), facilityType.getCodeId());
+                            
+                            int recentOutbound = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
+                                    latestClosingTime, currentTime, company.getId(), facilityType.getCodeId());
+                            
+                            // 현재 재고 수량 계산
+                            int currentQuantity = latestClosing.getClosingQuantity() + recentInbound - recentOutbound;
+                            
+                            // 결과 추가
+                            result.add(CurrentInventoryStatusDTO.builder()
+                                    .companyId(company.getId())
+                                    .companyName(company.getStoreName())
+                                    .facilityTypeCodeId(facilityType.getCodeId())
+                                    .facilityTypeName(facilityType.getCodeName())
+                                    .latestClosingDate(latestClosingDate)
+                                    .baseQuantity(latestClosing.getClosingQuantity())
+                                    .recentInbound(recentInbound)
+                                    .recentOutbound(recentOutbound)
+                                    .currentQuantity(currentQuantity)
+                                    .build());
+                        } else {
+                            // 마감 데이터가 없는 경우 전체 트랜잭션 조회
+                            LocalDateTime veryPastTime = LocalDateTime.of(2000, 1, 1, 0, 0);
+                            
+                            int totalInbound = transactionRepository.countInboundTransactionsBetweenClosingTimes(
+                                    veryPastTime, currentTime, company.getId(), facilityType.getCodeId());
+                            
+                            int totalOutbound = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
+                                    veryPastTime, currentTime, company.getId(), facilityType.getCodeId());
+                            
+                            // 현재 재고 = 총 입고 - 총 출고
+                            int currentQuantity = totalInbound - totalOutbound;
+                            
+                            // 결과 추가
+                            result.add(CurrentInventoryStatusDTO.builder()
+                                    .companyId(company.getId())
+                                    .companyName(company.getStoreName())
+                                    .facilityTypeCodeId(facilityType.getCodeId())
+                                    .facilityTypeName(facilityType.getCodeName())
+                                    .latestClosingDate(null)  // 마감 날짜 없음
+                                    .baseQuantity(0)          // 기준 수량 0
+                                    .recentInbound(totalInbound)
+                                    .recentOutbound(totalOutbound)
+                                    .currentQuantity(currentQuantity)
+                                    .build());
+                        }
+                    } catch (Exception e) {
+                        log.error("재고 현황 계산 중 오류: key={}, 오류={}", key, e.getMessage());
+                    }
+                }
+            }
+            
+            // 정렬 (회사명 -> 시설물 유형명)
+            result.sort(Comparator
+                    .comparing(CurrentInventoryStatusDTO::getCompanyName)
+                    .thenComparing(CurrentInventoryStatusDTO::getFacilityTypeName));
+            
+        } catch (Exception e) {
+            log.error("현재 재고 현황 조회 중 예외 발생: {}", e.getMessage());
+        }
+        
+        long endTime = System.currentTimeMillis();
+        log.info("캐시 사용 현재 재고 현황 조회 완료: {}개 결과, 소요시간: {}ms", result.size(), (endTime - startTime));
+        
+        // 결과가 없으면 기본 데이터 생성
+        if (result.isEmpty()) {
+            log.warn("조회 결과가 없어 기본 데이터를 생성합니다.");
+            return createEmptyResultWithDefaultData(null);
         }
         
         return result;
+    }
+    
+    /**
+     * 결과가 없을 때 기본 데이터를 생성하는 헬퍼 메서드
+     */
+    private List<CurrentInventoryStatusDTO> createEmptyResultWithDefaultData(List<Code> facilityTypes) {
+        List<CurrentInventoryStatusDTO> defaultResult = new ArrayList<>();
+        
+        try {
+            // 회사 목록 가져오기 (최소 1개)
+            List<Company> companies = companyRepository.findAll();
+            if (companies.isEmpty()) {
+                log.warn("등록된 회사가 없습니다. 기본 데이터를 생성할 수 없습니다.");
+                return defaultResult;
+            }
+            
+            // 시설물 유형 목록 가져오기 (제공되지 않은 경우)
+            if (facilityTypes == null || facilityTypes.isEmpty()) {
+                facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
+                if (facilityTypes.isEmpty()) {
+                    log.warn("등록된 시설물 유형이 없습니다. 기본 데이터를 생성할 수 없습니다.");
+                    return defaultResult;
+                }
+            }
+            
+            // 기본 회사와 시설물 유형으로 빈 데이터 생성
+            Company defaultCompany = companies.get(0);
+            Code defaultFacilityType = facilityTypes.get(0);
+            
+            defaultResult.add(CurrentInventoryStatusDTO.builder()
+                    .companyId(defaultCompany.getId())
+                    .companyName(defaultCompany.getStoreName())
+                    .facilityTypeCodeId(defaultFacilityType.getCodeId())
+                    .facilityTypeName(defaultFacilityType.getCodeName())
+                    .latestClosingDate(null)
+                    .baseQuantity(0)
+                    .recentInbound(0)
+                    .recentOutbound(0)
+                    .currentQuantity(0)
+                    .build());
+            
+            log.info("기본 데이터 생성 완료: 회사={}, 시설물유형={}", 
+                    defaultCompany.getStoreName(), defaultFacilityType.getCodeName());
+            
+        } catch (Exception e) {
+            log.error("기본 데이터 생성 중 오류 발생: {}", e.getMessage(), e);
+        }
+        
+        return defaultResult;
     }
     
     /**
@@ -692,5 +878,88 @@ public class InventoryClosingService {
         log.info("일일 마감 재계산 완료: {}, 처리 건수: {}", closingDate, processedCount);
         
         return processedCount;
+    }
+
+    /**
+     * 현재 재고 상태를 DB 페이징으로 조회 (성능 최적화)
+     * @param companyId 회사 ID (선택적)
+     * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
+     * @param pageable 페이징 정보
+     * @return 페이징된 현재 재고 상태 DTO
+     */
+    public Page<CurrentInventoryStatusDTO> getCurrentInventoryStatusDbPaged(
+            Long companyId, String facilityTypeCodeId, Pageable pageable) {
+        
+        log.info("DB 페이징 현재 재고 현황 조회 요청: 회사ID: {}, 시설물유형: {}", companyId, facilityTypeCodeId);
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            // DB에서 페이징 처리하여 최신 마감 데이터 조회
+            Page<DailyInventoryClosing> closingsPage = dailyClosingRepository
+                    .findLatestClosingsByCompanyAndFacilityTypePaged(companyId, facilityTypeCodeId, pageable);
+            
+            // 현재 시간 (모든 트랜잭션에 공통으로 사용)
+            LocalDateTime currentTime = LocalDateTime.now();
+            
+            // 마감 데이터를 DTO로 변환
+            Page<CurrentInventoryStatusDTO> resultPage = closingsPage.map(closing -> {
+                try {
+                    // 회사 및 시설물 유형 정보
+                    Company company = closing.getCompany();
+                    Code facilityType = closing.getFacilityType();
+                    
+                    // 마감 시간
+                    LocalDateTime closingTime = closing.getClosedAt() != null ? 
+                            closing.getClosedAt() : closing.getCreatedAt();
+                    
+                    // 마감 이후 트랜잭션 조회
+                    int recentInbound = transactionRepository.countInboundTransactionsBetweenClosingTimes(
+                            closingTime, currentTime, company.getId(), facilityType.getCodeId());
+                    
+                    int recentOutbound = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
+                            closingTime, currentTime, company.getId(), facilityType.getCodeId());
+                    
+                    // 현재 재고 수량 계산
+                    int currentQuantity = closing.getClosingQuantity() + recentInbound - recentOutbound;
+                    
+                    // DTO 생성
+                    return CurrentInventoryStatusDTO.builder()
+                            .companyId(company.getId())
+                            .companyName(company.getStoreName())
+                            .facilityTypeCodeId(facilityType.getCodeId())
+                            .facilityTypeName(facilityType.getCodeName())
+                            .latestClosingDate(closing.getClosingDate())
+                            .baseQuantity(closing.getClosingQuantity())
+                            .recentInbound(recentInbound)
+                            .recentOutbound(recentOutbound)
+                            .currentQuantity(currentQuantity)
+                            .build();
+                } catch (Exception e) {
+                    log.error("재고 현황 변환 중 오류: id={}, 오류={}", closing.getId(), e.getMessage());
+                    
+                    // 오류 시 기본 데이터 반환
+                    return CurrentInventoryStatusDTO.builder()
+                            .companyId(closing.getCompany().getId())
+                            .companyName(closing.getCompany().getStoreName())
+                            .facilityTypeCodeId(closing.getFacilityType().getCodeId())
+                            .facilityTypeName(closing.getFacilityType().getCodeName())
+                            .latestClosingDate(closing.getClosingDate())
+                            .baseQuantity(closing.getClosingQuantity())
+                            .recentInbound(0)
+                            .recentOutbound(0)
+                            .currentQuantity(closing.getClosingQuantity())
+                            .build();
+                }
+            });
+            
+            long endTime = System.currentTimeMillis();
+            log.info("DB 페이징 현재 재고 현황 조회 완료: 총 {}개 결과, 소요시간: {}ms", 
+                    resultPage.getTotalElements(), (endTime - startTime));
+            
+            return resultPage;
+        } catch (Exception e) {
+            log.error("DB 페이징 현재 재고 현황 조회 중 오류: {}", e.getMessage());
+            return Page.empty(pageable);
+        }
     }
 } 

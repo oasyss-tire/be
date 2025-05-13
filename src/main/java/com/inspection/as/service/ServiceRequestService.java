@@ -1,6 +1,6 @@
 package com.inspection.as.service;
 
-import java.time.LocalDate;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -12,24 +12,29 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.as.dto.CompleteServiceRequestDTO;
 import com.inspection.as.dto.CreateServiceRequestDTO;
 import com.inspection.as.dto.ReceiveServiceRequestDTO;
 import com.inspection.as.dto.ServiceRequestDTO;
+import com.inspection.as.dto.ServiceRequestImageDTO;
 import com.inspection.as.dto.UpdateServiceRequestDTO;
 import com.inspection.as.entity.ServiceRequest;
+import com.inspection.as.entity.ServiceRequestImage;
 import com.inspection.as.repository.ServiceRequestRepository;
+import com.inspection.as.repository.ServiceRequestImageRepository;
 import com.inspection.entity.Code;
 import com.inspection.entity.Company;
 import com.inspection.entity.User;
+import com.inspection.facility.dto.ServiceTransactionRequest;
 import com.inspection.facility.entity.Facility;
 import com.inspection.facility.repository.FacilityRepository;
+import com.inspection.facility.service.FacilityTransactionService;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
-import com.inspection.facility.dto.ServiceTransactionRequest;
-import com.inspection.facility.service.FacilityTransactionService;
+import com.inspection.util.EncryptionUtil;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -41,11 +46,14 @@ import lombok.extern.slf4j.Slf4j;
 public class ServiceRequestService {
     
     private final ServiceRequestRepository serviceRequestRepository;
+    private final ServiceRequestImageRepository serviceRequestImageRepository;
     private final FacilityRepository facilityRepository;
     private final CodeRepository codeRepository;
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final FacilityTransactionService facilityTransactionService;
+    private final EncryptionUtil encryptionUtil;
+    private final ServiceRequestImageService imageService;
     
     /**
      * 모든 AS 접수 조회
@@ -56,7 +64,7 @@ public class ServiceRequestService {
                 .map(ServiceRequestDTO::fromEntity)
                 .collect(Collectors.toList());
         
-        // 회사 정보 설정
+        // 회사 정보 설정 및 현재 위치 복호화
         for (ServiceRequestDTO dto : dtoList) {
             Long companyId = dto.getFacilityId() != null ? 
                     facilityRepository.findById(dto.getFacilityId())
@@ -64,6 +72,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         }
         
         return dtoList;
@@ -77,7 +86,7 @@ public class ServiceRequestService {
         Page<ServiceRequestDTO> dtoPage = serviceRequestRepository.findAll(pageable)
                 .map(ServiceRequestDTO::fromEntity);
         
-        // 회사 정보 설정
+        // 회사 정보 설정 및 현재 위치 복호화
         dtoPage.getContent().forEach(dto -> {
             Long companyId = dto.getFacilityId() != null ? 
                     facilityRepository.findById(dto.getFacilityId())
@@ -85,6 +94,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoPage;
@@ -100,26 +110,28 @@ public class ServiceRequestService {
         
         ServiceRequestDTO dto = ServiceRequestDTO.fromEntity(serviceRequest);
         
-        // 회사 정보 설정
+        // 회사 정보 설정 및 현재 위치 복호화
         Long companyId = getCompanyIdFromFacility(serviceRequest.getFacility());
         dto.setCompanyName(getCompanyName(companyId));
+        dto.decryptCurrentLocation(encryptionUtil);
         
         return dto;
     }
     
     /**
-     * AS 접수 상세 조회 (이력 포함)
+     * AS 접수 상세 조회 (이력 및 이미지 포함)
      */
     @Transactional(readOnly = true)
-    public ServiceRequestDTO getServiceRequestWithHistories(Long id) {
+    public ServiceRequestDTO getServiceRequestWithAll(Long id) {
         ServiceRequest serviceRequest = serviceRequestRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("AS 접수를 찾을 수 없습니다: " + id));
         
-        ServiceRequestDTO dto = ServiceRequestDTO.fromEntityWithHistories(serviceRequest);
+        ServiceRequestDTO dto = ServiceRequestDTO.fromEntityWithAll(serviceRequest);
         
-        // 회사 정보 설정
+        // 회사 정보 설정 및 현재 위치 복호화
         Long companyId = getCompanyIdFromFacility(serviceRequest.getFacility());
         dto.setCompanyName(getCompanyName(companyId));
+        dto.decryptCurrentLocation(encryptionUtil);
         
         return dto;
     }
@@ -140,7 +152,10 @@ public class ServiceRequestService {
         Long companyId = getCompanyIdFromFacility(facility);
         String companyName = getCompanyName(companyId);
         
-        dtoList.forEach(dto -> dto.setCompanyName(companyName));
+        dtoList.forEach(dto -> {
+            dto.setCompanyName(companyName);
+            dto.decryptCurrentLocation(encryptionUtil);
+        });
         
         return dtoList;
     }
@@ -161,7 +176,10 @@ public class ServiceRequestService {
         Long companyId = getCompanyIdFromFacility(facility);
         String companyName = getCompanyName(companyId);
         
-        dtoList.forEach(dto -> dto.setCompanyName(companyName));
+        dtoList.forEach(dto -> {
+            dto.setCompanyName(companyName);
+            dto.decryptCurrentLocation(encryptionUtil);
+        });
         
         return dtoList;
     }
@@ -183,6 +201,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -197,7 +216,7 @@ public class ServiceRequestService {
                 .map(ServiceRequestDTO::fromEntity)
                 .collect(Collectors.toList());
         
-        // 회사 정보 설정
+        // 회사 정보 설정 및 현재 위치 복호화
         dtoList.forEach(dto -> {
             Long companyId = dto.getFacilityId() != null ? 
                     facilityRepository.findById(dto.getFacilityId())
@@ -205,6 +224,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -227,6 +247,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -249,6 +270,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -271,6 +293,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -296,6 +319,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -318,6 +342,7 @@ public class ServiceRequestService {
                     .orElse(null) : null;
             
             dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
         });
         
         return dtoList;
@@ -329,11 +354,12 @@ public class ServiceRequestService {
     private ServiceRequestDTO enrichDtoWithCompanyInfo(ServiceRequestDTO dto, Facility facility) {
         Long companyId = getCompanyIdFromFacility(facility);
         dto.setCompanyName(getCompanyName(companyId));
+        dto.decryptCurrentLocation(encryptionUtil);
         return dto;
     }
     
     /**
-     * AS 접수 생성
+     * AS 접수 생성 (이미지 포함)
      */
     @Transactional
     public ServiceRequestDTO createServiceRequest(CreateServiceRequestDTO dto, String userId) {
@@ -384,7 +410,25 @@ public class ServiceRequestService {
         
         ServiceRequest savedServiceRequest = serviceRequestRepository.save(serviceRequest);
         
-        return enrichDtoWithCompanyInfo(ServiceRequestDTO.fromEntity(savedServiceRequest), facility);
+        // 이미지 업로드 처리
+        if (dto.getImages() != null && !dto.getImages().isEmpty()) {
+            imageService.uploadImages(
+                savedServiceRequest.getServiceRequestId(), 
+                dto.getImages(), 
+                "002005_0008", // AS 접수 이미지 코드
+                userId
+            );
+        }
+        
+        // DTO로 변환하여 반환
+        ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntityWithAll(savedServiceRequest);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(savedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
@@ -392,14 +436,11 @@ public class ServiceRequestService {
      */
     @Transactional
     public ServiceRequestDTO createServiceRequest(CreateServiceRequestDTO dto) {
-        // 요청자 ID가 제공된 경우 해당 ID를 사용
-        if (dto.getRequesterId() != null) {
-            User requester = userRepository.findById(dto.getRequesterId())
-                    .orElseThrow(() -> new EntityNotFoundException("요청자를 찾을 수 없습니다: " + dto.getRequesterId()));
-            return createServiceRequestWithUser(dto, requester);
-        } else {
-            throw new IllegalArgumentException("요청자 ID가 제공되지 않았습니다.");
-        }
+        // 유저 정보 가져오기
+        User requester = userRepository.findById(dto.getRequesterId())
+                .orElseThrow(() -> new EntityNotFoundException("사용자를 찾을 수 없습니다: " + dto.getRequesterId()));
+        
+        return createServiceRequestWithUser(dto, requester);
     }
     
     /**
@@ -458,8 +499,15 @@ public class ServiceRequestService {
         
         ServiceRequest savedServiceRequest = serviceRequestRepository.save(serviceRequest);
         
+        // DTO로 변환하여 반환
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(savedServiceRequest);
-        return enrichDtoWithCompanyInfo(resultDto, facility);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(savedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
@@ -531,10 +579,16 @@ public class ServiceRequestService {
             serviceRequest.setNotes(dto.getNotes());
         }
         
-        ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
+        // 저장 및 DTO 변환
+        ServiceRequest savedServiceRequest = serviceRequestRepository.save(serviceRequest);
+        ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(savedServiceRequest);
         
-        ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
-        return enrichDtoWithCompanyInfo(resultDto, updatedServiceRequest.getFacility());
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(savedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
@@ -578,41 +632,15 @@ public class ServiceRequestService {
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
         
-        // 시설물 이동 트랜잭션 생성 (요청자 회사 -> AS센터)
-        try {
-            if (facility != null) {
-                ServiceTransactionRequest transactionRequest = new ServiceTransactionRequest();
-                transactionRequest.setFacilityId(facility.getFacilityId());
-                transactionRequest.setServiceRequestId(serviceRequest.getServiceRequestId());
-                
-                // 출발지: 시설물의 현재 위치 회사
-                Long fromCompanyId = getCompanyIdFromFacility(facility);
-                if (fromCompanyId != null) {
-                    transactionRequest.setFromCompanyId(fromCompanyId);
-                    
-                    // 도착지: AS 처리를 수행하는 회사 (기본값으로 관리자의 소속 회사 사용)
-                    Long toCompanyId = manager.getCompany() != null ? manager.getCompany().getId() : null;
-                    if (toCompanyId != null) {
-                        transactionRequest.setToCompanyId(toCompanyId);
-                        transactionRequest.setIsReturn(false); // AS센터로 이동
-                        transactionRequest.setNotes("AS 접수 완료에 따른 수리 센터 이동");
-                        
-                        // 트랜잭션 생성
-                        facilityTransactionService.processService(transactionRequest);
-                    } else {
-                        log.warn("관리자의 소속 회사 정보가 없어 AS 이동 트랜잭션을 생성할 수 없습니다. 관리자 ID: {}", manager.getId());
-                    }
-                } else {
-                    log.warn("시설물의 위치 회사 정보가 없어 AS 이동 트랜잭션을 생성할 수 없습니다. 시설물 ID: {}", facility.getFacilityId());
-                }
-            }
-        } catch (Exception e) {
-            log.error("시설물 AS 이동 트랜잭션 생성 중 오류 발생: {}", e.getMessage(), e);
-            // 트랜잭션 생성 실패가 AS 접수 자체를 실패시키지 않도록 예외 처리
-        }
-        
+        // DTO로 변환하여 반환
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
-        return enrichDtoWithCompanyInfo(resultDto, facility);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(updatedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
@@ -639,12 +667,19 @@ public class ServiceRequestService {
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
         
+        // DTO로 변환하여 반환
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
-        return enrichDtoWithCompanyInfo(resultDto, facility);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(updatedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
-     * AS 완료 처리 (로그인한 사용자를 담당자로 설정, 비용 입력)
+     * AS 완료 처리 (로그인한 사용자를 담당자로 설정, 비용 입력, 이미지 업로드)
      */
     @Transactional
     public ServiceRequestDTO markAsCompleted(Long id, String userId, CompleteServiceRequestDTO dto) {
@@ -685,7 +720,6 @@ public class ServiceRequestService {
         facilityRepository.save(facility);
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
-
         
         // 시설물 복귀 트랜잭션 생성 (AS센터 -> 요청자 회사)
         try {
@@ -752,8 +786,25 @@ public class ServiceRequestService {
             // 트랜잭션 생성 실패가 AS 완료 자체를 실패시키지 않도록 예외 처리
         }
         
-        ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
-        return enrichDtoWithCompanyInfo(resultDto, facility);
+        // 이미지 업로드 처리
+        if (dto.getImages() != null && !dto.getImages().isEmpty()) {
+            imageService.uploadImages(
+                updatedServiceRequest.getServiceRequestId(), 
+                dto.getImages(), 
+                "002005_0009", // AS 완료 이미지 코드
+                userId
+            );
+        }
+        
+        // DTO로 변환하여 반환
+        ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntityWithAll(updatedServiceRequest);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(updatedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
@@ -781,8 +832,15 @@ public class ServiceRequestService {
         
         ServiceRequest updatedServiceRequest = serviceRequestRepository.save(serviceRequest);
         
+        // DTO로 변환하여 반환
         ServiceRequestDTO resultDto = ServiceRequestDTO.fromEntity(updatedServiceRequest);
-        return enrichDtoWithCompanyInfo(resultDto, facility);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        Long companyId = getCompanyIdFromFacility(updatedServiceRequest.getFacility());
+        resultDto.setCompanyName(getCompanyName(companyId));
+        resultDto.decryptCurrentLocation(encryptionUtil);
+        
+        return resultDto;
     }
     
     /**
@@ -790,8 +848,21 @@ public class ServiceRequestService {
      */
     @Transactional(readOnly = true)
     public Page<ServiceRequestDTO> searchServiceRequests(Specification<ServiceRequest> spec, Pageable pageable) {
-        return serviceRequestRepository.findAll(spec, pageable)
+        Page<ServiceRequestDTO> dtoPage = serviceRequestRepository.findAll(spec, pageable)
                 .map(ServiceRequestDTO::fromEntity);
+        
+        // 회사 정보 설정 및 현재 위치 복호화
+        dtoPage.getContent().forEach(dto -> {
+            Long companyId = dto.getFacilityId() != null ? 
+                    facilityRepository.findById(dto.getFacilityId())
+                    .map(this::getCompanyIdFromFacility)
+                    .orElse(null) : null;
+            
+            dto.setCompanyName(getCompanyName(companyId));
+            dto.decryptCurrentLocation(encryptionUtil);
+        });
+        
+        return dtoPage;
     }
     
     /**
@@ -830,5 +901,53 @@ public class ServiceRequestService {
         }
         
         return null;
+    }
+    
+    /**
+     * AS 접수 이미지 업로드
+     */
+    @Transactional
+    public List<ServiceRequestImageDTO> uploadImages(Long serviceRequestId, List<MultipartFile> images, String imageTypeCode, String userId) {
+        return imageService.uploadImages(serviceRequestId, images, imageTypeCode, userId);
+    }
+    
+    /**
+     * 단일 AS 접수 이미지 업로드
+     */
+    @Transactional
+    public ServiceRequestImageDTO uploadImage(Long serviceRequestId, MultipartFile image, String imageTypeCode, String userId) {
+        log.info("단일 이미지 업로드: AS 접수 ID={}, 이미지 유형={}, 사용자={}", serviceRequestId, imageTypeCode, userId);
+        
+        if (image == null || image.isEmpty()) {
+            throw new IllegalArgumentException("업로드할 이미지가 없습니다.");
+        }
+        
+        ServiceRequest serviceRequest = serviceRequestRepository.findById(serviceRequestId)
+                .orElseThrow(() -> new EntityNotFoundException("AS 접수를 찾을 수 없습니다: " + serviceRequestId));
+        
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new EntityNotFoundException("사용자를 찾을 수 없습니다: " + userId));
+        
+        Code imageType = codeRepository.findById(imageTypeCode)
+                .orElseThrow(() -> new EntityNotFoundException("이미지 유형 코드를 찾을 수 없습니다: " + imageTypeCode));
+        
+        try {
+            String fileName = imageService.saveFile(image);
+            String imageUrl = "/service-request-images/" + fileName;
+            
+            ServiceRequestImage serviceRequestImage = ServiceRequestImage.builder()
+                    .serviceRequest(serviceRequest)
+                    .imageUrl(imageUrl)
+                    .imageType(imageType)
+                    .active(true)
+                    .uploadBy(user)
+                    .build();
+            
+            ServiceRequestImage savedImage = serviceRequestImageRepository.save(serviceRequestImage);
+            return ServiceRequestImageDTO.fromEntity(savedImage);
+        } catch (IOException e) {
+            log.error("이미지 저장 중 오류 발생: {}", e.getMessage(), e);
+            throw new RuntimeException("이미지 저장 중 오류가 발생했습니다.", e);
+        }
     }
 } 

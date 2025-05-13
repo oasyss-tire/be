@@ -2,6 +2,7 @@ package com.inspection.facility.controller;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -141,5 +142,14 @@ public class FacilityController {
     @GetMapping("/facility-type/{facilityTypeCode}/brands")
     public ResponseEntity<List<com.inspection.dto.CodeDTO>> getBrandsByFacilityType(@PathVariable String facilityTypeCode) {
         return ResponseEntity.ok(facilityService.getBrandCodesByFacilityType(facilityTypeCode));
+    }
+    
+    /**
+     * 시설물 유형별 총 수량 조회
+     */
+    @GetMapping("/counts-by-type")
+    public ResponseEntity<Map<String, Object>> getFacilityCountsByType() {
+        Map<String, Object> counts = facilityService.getFacilityCountsByType();
+        return ResponseEntity.ok(counts);
     }
 } 

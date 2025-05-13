@@ -97,109 +97,6 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
     
     /**
      * 특정 기간, 회사, 시설물 유형에 대한 입고 트랜잭션 수량 조회
-     * 입고(002011_0001)와 이동(002011_0003)(도착지로서) 트랜잭션을 포함
-     * 취소된 트랜잭션은 제외합니다.
-     * @param startDateTime 시작 일시
-     * @param endDateTime 종료 일시
-     * @param companyId 회사 ID
-     * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @return 입고 수량
-     */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate BETWEEN :startDateTime AND :endDateTime " +
-           "AND ft.toCompany.id = :companyId " +
-           "AND ft.facility.facilityType.codeId = :facilityTypeCodeId " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.transactionType.codeId = '002011_0001' OR " +
-           "    (ft.transactionType.codeId = '002011_0003' AND ft.fromCompany.id != :companyId))")
-    int countInboundTransactionsByDateRangeAndCompanyAndType(
-            @Param("startDateTime") LocalDateTime startDateTime,
-            @Param("endDateTime") LocalDateTime endDateTime,
-            @Param("companyId") Long companyId,
-            @Param("facilityTypeCodeId") String facilityTypeCodeId);
-    
-    /**
-     * 특정 기간, 회사, 시설물 유형에 대한 출고 트랜잭션 수량 조회
-     * 출고(002011_0002), 폐기(002011_0007), 이동(002011_0003)(출발지로서) 트랜잭션을 포함
-     * 취소된 트랜잭션은 제외합니다.
-     * @param startDateTime 시작 일시
-     * @param endDateTime 종료 일시
-     * @param companyId 회사 ID
-     * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @return 출고 수량
-     */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate BETWEEN :startDateTime AND :endDateTime " +
-           "AND ft.fromCompany.id = :companyId " +
-           "AND ft.facility.facilityType.codeId = :facilityTypeCodeId " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.transactionType.codeId = '002011_0002' OR " + // 출고
-           "    ft.transactionType.codeId = '002011_0007' OR " + // 폐기
-           "    (ft.transactionType.codeId = '002011_0003' AND ft.toCompany.id != :companyId))")
-    int countOutboundTransactionsByDateRangeAndCompanyAndType(
-            @Param("startDateTime") LocalDateTime startDateTime,
-            @Param("endDateTime") LocalDateTime endDateTime,
-            @Param("companyId") Long companyId,
-            @Param("facilityTypeCodeId") String facilityTypeCodeId);
-    
-    /**
-     * 특정 회사의 특정 날짜 이후 트랜잭션 목록 조회
-     * 취소된 트랜잭션은 제외합니다.
-     * @param companyId 회사 ID
-     * @param dateTime 기준 일시
-     * @return 트랜잭션 목록
-     */
-    @Query("SELECT DISTINCT ft FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate > :dateTime " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.fromCompany.id = :companyId OR ft.toCompany.id = :companyId)")
-    List<FacilityTransaction> findByCompanyIdAndTransactionDateAfter(
-            @Param("companyId") Long companyId,
-            @Param("dateTime") LocalDateTime dateTime);
-    
-    /**
-     * 특정 회사, 특정 시설물 유형의 특정 날짜 이후 트랜잭션 목록 조회
-     * 취소된 트랜잭션은 제외합니다.
-     * @param companyId 회사 ID
-     * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @param dateTime 기준 일시
-     * @return 트랜잭션 목록
-     */
-    @Query("SELECT DISTINCT ft FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate > :dateTime " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.fromCompany.id = :companyId OR ft.toCompany.id = :companyId) " +
-           "AND ft.facility.facilityType.codeId = :facilityTypeCodeId")
-    List<FacilityTransaction> findByCompanyIdAndFacilityTypeCodeIdAndTransactionDateAfter(
-            @Param("companyId") Long companyId,
-            @Param("facilityTypeCodeId") String facilityTypeCodeId,
-            @Param("dateTime") LocalDateTime dateTime);
-    
-    /**
-     * 마지막 마감 시간 이후부터 현재 마감 처리 시작 시간까지의 트랜잭션 조회
-     * 날짜가 아닌 실제 마감 처리 시간을 기준으로 합니다.
-     * 취소된 트랜잭션은 제외합니다.
-     * 
-     * @param lastClosingTime 마지막 마감 처리 시간 (없으면 매우 과거 시간 사용)
-     * @param currentProcessingTime 현재 마감 처리 시작 시간
-     * @param companyId 회사 ID
-     * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @return 해당 기간 동안의 트랜잭션 목록
-     */
-    @Query("SELECT DISTINCT ft FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate > :lastClosingTime " +
-           "AND ft.transactionDate <= :currentProcessingTime " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.fromCompany.id = :companyId OR ft.toCompany.id = :companyId) " +
-           "AND ft.facility.facilityType.codeId = :facilityTypeCodeId")
-    List<FacilityTransaction> findTransactionsBetweenClosingTimes(
-            @Param("lastClosingTime") LocalDateTime lastClosingTime,
-            @Param("currentProcessingTime") LocalDateTime currentProcessingTime,
-            @Param("companyId") Long companyId,
-            @Param("facilityTypeCodeId") String facilityTypeCodeId);
-            
-    /**
-     * 특정 기간, 회사, 시설물 유형에 대한 입고 트랜잭션 수량 조회
      * 마감 시간 기준으로 조회합니다.
      * 입고(002011_0001)와 이동(002011_0003)(도착지로서) 트랜잭션을 포함
      * 취소된 트랜잭션은 제외합니다.
@@ -210,14 +107,17 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @param facilityTypeCodeId 시설물 유형 코드 ID
      * @return 입고 수량
      */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate > :lastClosingTime " +
-           "AND ft.transactionDate <= :currentProcessingTime " +
-           "AND ft.toCompany.id = :companyId " +
-           "AND ft.facility.facilityType.codeId = :facilityTypeCodeId " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.transactionType.codeId = '002011_0001' OR " +
-           "    (ft.transactionType.codeId = '002011_0003' AND ft.fromCompany.id != :companyId))")
+    @Query(value = "SELECT /*+ INDEX(ft idx_ft_to_company) INDEX(f idx_facility_type) INDEX(ft idx_ft_transaction_date) */ " +
+           "COUNT(DISTINCT ft.facility_id) FROM facility_transactions ft " +
+           "JOIN facilities f ON ft.facility_id = f.facility_id " +
+           "WHERE ft.transaction_date > :lastClosingTime " +
+           "AND ft.transaction_date <= :currentProcessingTime " +
+           "AND ft.to_company_id = :companyId " +
+           "AND f.facility_type_code = :facilityTypeCodeId " +
+           "AND ft.is_cancelled = false " +
+           "AND (ft.transaction_type_code = '002011_0001' OR " +
+           "    (ft.transaction_type_code = '002011_0003' AND ft.from_company_id != :companyId))", 
+           nativeQuery = true)
     int countInboundTransactionsBetweenClosingTimes(
             @Param("lastClosingTime") LocalDateTime lastClosingTime,
             @Param("currentProcessingTime") LocalDateTime currentProcessingTime,
@@ -236,15 +136,18 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @param facilityTypeCodeId 시설물 유형 코드 ID
      * @return 출고 수량
      */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
-           "WHERE ft.transactionDate > :lastClosingTime " +
-           "AND ft.transactionDate <= :currentProcessingTime " +
-           "AND ft.fromCompany.id = :companyId " +
-           "AND ft.facility.facilityType.codeId = :facilityTypeCodeId " +
-           "AND ft.isCancelled = false " +
-           "AND (ft.transactionType.codeId = '002011_0002' OR " + // 출고
-           "    ft.transactionType.codeId = '002011_0007' OR " + // 폐기
-           "    (ft.transactionType.codeId = '002011_0003' AND ft.toCompany.id != :companyId))")
+    @Query(value = "SELECT /*+ INDEX(ft idx_ft_from_company) INDEX(f idx_facility_type) INDEX(ft idx_ft_transaction_date) */ " +
+           "COUNT(DISTINCT ft.facility_id) FROM facility_transactions ft " +
+           "JOIN facilities f ON ft.facility_id = f.facility_id " +
+           "WHERE ft.transaction_date > :lastClosingTime " +
+           "AND ft.transaction_date <= :currentProcessingTime " +
+           "AND ft.from_company_id = :companyId " +
+           "AND f.facility_type_code = :facilityTypeCodeId " +
+           "AND ft.is_cancelled = false " +
+           "AND (ft.transaction_type_code = '002011_0002' OR " + // 출고
+           "    ft.transaction_type_code = '002011_0007' OR " + // 폐기
+           "    (ft.transaction_type_code = '002011_0003' AND ft.to_company_id != :companyId))", 
+           nativeQuery = true)
     int countOutboundTransactionsBetweenClosingTimes(
             @Param("lastClosingTime") LocalDateTime lastClosingTime,
             @Param("currentProcessingTime") LocalDateTime currentProcessingTime,

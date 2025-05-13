@@ -3,12 +3,14 @@ package com.inspection.as.controller;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Arrays;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,13 +22,17 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.inspection.as.dto.CompleteServiceRequestDTO;
 import com.inspection.as.dto.CreateServiceRequestDTO;
+import com.inspection.as.dto.ReceiveServiceRequestDTO;
 import com.inspection.as.dto.ServiceRequestDTO;
 import com.inspection.as.dto.UpdateServiceRequestDTO;
-import com.inspection.as.dto.ReceiveServiceRequestDTO;
-import com.inspection.as.dto.CompleteServiceRequestDTO;
 import com.inspection.as.service.ServiceRequestService;
 
 import jakarta.validation.Valid;
@@ -74,7 +80,7 @@ public class ServiceRequestController {
      */
     @GetMapping("/{id}/with-histories")
     public ResponseEntity<ServiceRequestDTO> getServiceRequestWithHistories(@PathVariable Long id) {
-        ServiceRequestDTO serviceRequest = serviceRequestService.getServiceRequestWithHistories(id);
+        ServiceRequestDTO serviceRequest = serviceRequestService.getServiceRequestWithAll(id);
         return ResponseEntity.ok(serviceRequest);
     }
     
@@ -156,7 +162,65 @@ public class ServiceRequestController {
     }
     
     /**
-     * AS 접수 생성
+     * AS 접수 상세 조회 (이력 및 이미지 포함)
+     */
+    @GetMapping("/{id}/all")
+    public ResponseEntity<ServiceRequestDTO> getServiceRequestWithAll(@PathVariable Long id) {
+        ServiceRequestDTO serviceRequest = serviceRequestService.getServiceRequestWithAll(id);
+        return ResponseEntity.ok(serviceRequest);
+    }
+    
+    /**
+     * AS 접수 생성 (이미지 포함)
+     */
+    @PostMapping("/with-images")
+    public ResponseEntity<ServiceRequestDTO> createServiceRequestWithImages(
+            @RequestParam("request") String requestJson,
+            @RequestParam(value = "images", required = false) MultipartFile[] images) {
+        
+        try {
+            // JSON 문자열을 DTO로 변환
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule()); // JavaTimeModule 등록
+            CreateServiceRequestDTO dto = objectMapper.readValue(requestJson, CreateServiceRequestDTO.class);
+            
+            log.info("이미지 첨부 AS 접수 요청: 시설물 ID={}, 요청 내용={}", 
+                    dto.getFacilityId(), dto.getRequestContent());
+            
+            // 현재 로그인한 사용자 정보 가져오기
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            String currentUserId = authentication.getName();
+            
+            // AS 접수 생성
+            ServiceRequestDTO createdServiceRequest = serviceRequestService.createServiceRequest(dto, currentUserId);
+            
+            // 이미지가 제공된 경우 업로드 처리
+            if (images != null && images.length > 0) {
+                for (MultipartFile image : images) {
+                    if (!image.isEmpty()) {
+                        try {
+                            serviceRequestService.uploadImage(
+                                    createdServiceRequest.getServiceRequestId(), 
+                                    image, 
+                                    "002005_0008", // AS 접수 이미지 코드
+                                    currentUserId);
+                        } catch (Exception e) {
+                            log.error("AS 접수 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
+                            // 이미지 업로드 실패가 AS 접수 자체를 실패시키지 않도록 예외 처리
+                        }
+                    }
+                }
+            }
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdServiceRequest);
+        } catch (Exception e) {
+            log.error("AS 접수 요청 처리 중 오류: {}", e.getMessage(), e);
+            throw new RuntimeException("AS 접수 처리 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * 기존 AS 접수 생성 API 유지 (이미지 없는 버전)
      */
     @PostMapping
     public ResponseEntity<ServiceRequestDTO> createServiceRequest(
@@ -206,7 +270,56 @@ public class ServiceRequestController {
     }
     
     /**
-     * AS 완료 처리
+     * AS 완료 처리 (이미지 포함)
+     */
+    @PutMapping("/{id}/complete-with-images")
+    public ResponseEntity<ServiceRequestDTO> markAsCompletedWithImages(
+            @PathVariable Long id,
+            @RequestParam("request") String requestJson,
+            @RequestParam(value = "images", required = false) MultipartFile[] images) {
+        
+        try {
+            // JSON 문자열을 DTO로 변환
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule()); // JavaTimeModule 등록
+            CompleteServiceRequestDTO dto = objectMapper.readValue(requestJson, CompleteServiceRequestDTO.class);
+            
+            log.info("이미지 첨부 AS 완료 요청: AS 접수 ID={}, 수리 비용={}", id, dto.getCost());
+            
+            // 현재 로그인한 사용자 정보 가져오기
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            String currentUserId = authentication.getName();
+            
+            // AS 완료 처리
+            ServiceRequestDTO serviceRequest = serviceRequestService.markAsCompleted(id, currentUserId, dto);
+            
+            // 이미지가 제공된 경우 업로드 처리
+            if (images != null && images.length > 0) {
+                for (MultipartFile image : images) {
+                    if (!image.isEmpty()) {
+                        try {
+                            serviceRequestService.uploadImage(
+                                    id, 
+                                    image, 
+                                    "002005_0009", // AS 완료 이미지 코드
+                                    currentUserId);
+                        } catch (Exception e) {
+                            log.error("AS 완료 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
+                            // 이미지 업로드 실패가 AS 완료 자체를 실패시키지 않도록 예외 처리
+                        }
+                    }
+                }
+            }
+            
+            return ResponseEntity.ok(serviceRequest);
+        } catch (Exception e) {
+            log.error("AS 완료 요청 처리 중 오류: {}", e.getMessage(), e);
+            throw new RuntimeException("AS 완료 처리 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * 기존 AS 완료 처리 API 유지 (이미지 없는 버전)
      */
     @PutMapping("/{id}/complete")
     public ResponseEntity<ServiceRequestDTO> markAsCompleted(

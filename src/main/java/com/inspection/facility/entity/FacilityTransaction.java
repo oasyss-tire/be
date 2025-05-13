@@ -17,6 +17,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -24,7 +25,17 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "facility_transactions")
+@Table(
+    name = "facility_transactions", 
+    indexes = {
+        @Index(name = "idx_ft_transaction_date", columnList = "transaction_date"),
+        @Index(name = "idx_ft_facility_transaction_date", columnList = "facility_id,transaction_date"),
+        @Index(name = "idx_ft_from_company", columnList = "from_company_id,transaction_type_code,transaction_date"),
+        @Index(name = "idx_ft_to_company", columnList = "to_company_id,transaction_type_code,transaction_date"),
+        @Index(name = "idx_ft_facility_type_transaction", columnList = "facility_id,transaction_type_code,transaction_date"),
+        @Index(name = "idx_ft_batch_id", columnList = "batch_id")
+    }
+)
 @EntityListeners(AuditingEntityListener.class)
 @Getter @Setter
 public class FacilityTransaction {

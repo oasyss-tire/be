@@ -1,8 +1,10 @@
 package com.inspection.as.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -56,4 +58,7 @@ public class CreateServiceRequestDTO {
     
     @Builder.Default
     private Boolean isCompleted = false;
+    
+    // 이미지 파일 목록
+    private List<MultipartFile> images;
 } 

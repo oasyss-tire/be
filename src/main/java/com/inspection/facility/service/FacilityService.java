@@ -3,7 +3,9 @@ package com.inspection.facility.service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -34,6 +36,7 @@ import com.inspection.facility.entity.Facility;
 import com.inspection.facility.repository.FacilityRepository;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
+import com.inspection.util.EncryptionUtil;
 
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.criteria.Predicate;
@@ -51,6 +54,7 @@ public class FacilityService {
     private final ServiceRequestRepository serviceRequestRepository;
     private final FacilityTransactionService facilityTransactionService;
     private final FacilityImageService facilityImageService;
+    private final EncryptionUtil encryptionUtil;
     
     /**
      * 모든 시설물 조회
@@ -742,7 +746,20 @@ public class FacilityService {
             dto.setLocationCompanyId(locationCompany.getId());
             dto.setLocationStoreNumber(locationCompany.getStoreNumber());
             dto.setLocationStoreName(locationCompany.getStoreName());
-            dto.setLocationAddress(locationCompany.getAddress());
+            
+            // 암호화된 주소를 복호화하여 설정
+            if (locationCompany.getAddress() != null && !locationCompany.getAddress().isEmpty()) {
+                try {
+                    String decryptedAddress = encryptionUtil.decrypt(locationCompany.getAddress());
+                    dto.setLocationAddress(decryptedAddress);
+                } catch (Exception e) {
+                    log.error("위치 회사 주소 복호화 중 오류 발생: {}", e.getMessage(), e);
+                    // 복호화 실패 시 원본 값 유지
+                    dto.setLocationAddress(locationCompany.getAddress());
+                }
+            } else {
+                dto.setLocationAddress(locationCompany.getAddress());
+            }
         }
         
         // 소유 회사 정보 설정
@@ -984,5 +1001,47 @@ public class FacilityService {
         
         // Code 엔티티를 CodeDTO로 변환하여 반환
         return com.inspection.dto.CodeDTO.fromEntities(brandCodes);
+    }
+
+    /**
+     * 시설물 유형별 총 수량 조회
+     * @return 시설물 유형 코드를 키로, 총 수량을 값으로 하는 맵
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getFacilityCountsByType() {
+        log.info("시설물 유형별 총 수량 조회");
+        
+        // 시설물 유형별 수량 조회
+        Map<String, Long> countsMap = facilityRepository.countByFacilityTypeCode();
+        
+        // 결과 맵 생성
+        Map<String, Object> result = new LinkedHashMap<>();
+        
+        // 모든 시설물 유형 코드 목록 조회
+        List<Code> facilityTypeCodes = codeRepository.findByCodeGroupGroupId("002001");
+        
+        // 모든 시설물 유형에 대해 카운트 설정 (0으로 초기화)
+        facilityTypeCodes.forEach(code -> {
+            String codeId = code.getCodeId();
+            String codeName = code.getCodeName();
+            Long count = countsMap.getOrDefault(codeId, 0L);
+            
+            Map<String, Object> typeInfo = new LinkedHashMap<>();
+            typeInfo.put("facilityTypeCode", codeId);
+            typeInfo.put("facilityTypeName", codeName);
+            typeInfo.put("count", count);
+            
+            result.put(codeId, typeInfo);
+        });
+        
+        // 전체 수량 합계 추가
+        long totalCount = countsMap.values().stream().mapToLong(Long::longValue).sum();
+        Map<String, Object> totalInfo = new LinkedHashMap<>();
+        totalInfo.put("facilityTypeCode", "total");
+        totalInfo.put("facilityTypeName", "전체");
+        totalInfo.put("count", totalCount);
+        result.put("total", totalInfo);
+        
+        return result;
     }
 } 

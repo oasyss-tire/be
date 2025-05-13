@@ -1,7 +1,9 @@
 package com.inspection.facility.repository;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -128,4 +130,23 @@ public interface FacilityRepository extends JpaRepository<Facility, Long>, JpaSp
     
     // 특정 날짜 범위와 시설물 타입별 생성된 시설물 수 카운트
     int countByFacilityType_CodeIdAndCreatedAtBetween(String facilityTypeCode, LocalDateTime startDate, LocalDateTime endDate);
+    
+    // 시설물 유형별 카운트 조회
+    @Query("SELECT f.facilityType.codeId AS typeCode, COUNT(f) AS count FROM Facility f GROUP BY f.facilityType.codeId")
+    List<Object[]> countGroupByFacilityType();
+    
+    // 시설물 유형별 카운트를 Map으로 반환
+    @Query("SELECT f.facilityType.codeId as typeCode, COUNT(f) as count FROM Facility f GROUP BY f.facilityType.codeId")
+    default Map<String, Long> countByFacilityTypeCode() {
+        Map<String, Long> result = new HashMap<>();
+        List<Object[]> counts = countGroupByFacilityType();
+        
+        for (Object[] count : counts) {
+            String typeCode = (String) count[0];
+            Long countValue = ((Number) count[1]).longValue();
+            result.put(typeCode, countValue);
+        }
+        
+        return result;
+    }
 } 

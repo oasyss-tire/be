@@ -1,11 +1,13 @@
 package com.inspection.as.dto;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import com.inspection.as.entity.ServiceRequest;
+import com.inspection.as.entity.ServiceRequestImage;
 import com.inspection.facility.entity.Facility;
+import com.inspection.util.EncryptionUtil;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -56,6 +58,7 @@ public class ServiceRequestDTO {
     private Double cost;                      // 수리 비용
     private String notes;                     // 비고
     private List<ServiceHistoryDTO> serviceHistories; // AS 이력
+    private List<ServiceRequestImageDTO> images; // AS 이미지
     private LocalDateTime createdAt;          // 등록일
     private LocalDateTime updatedAt;          // 수정일
     
@@ -118,6 +121,37 @@ public class ServiceRequestDTO {
         }
         
         return dto;
+    }
+    
+    /**
+     * ServiceRequest 엔티티를 DTO로 변환 (AS 이력 및 이미지 포함)
+     */
+    public static ServiceRequestDTO fromEntityWithAll(ServiceRequest entity) {
+        ServiceRequestDTO dto = fromEntityWithHistories(entity);
+        
+        if (entity.getImages() != null) {
+            List<ServiceRequestImageDTO> imageDtos = entity.getImages().stream()
+                    .filter(image -> image.isActive())
+                    .map(ServiceRequestImageDTO::fromEntity)
+                    .collect(Collectors.toList());
+            dto.setImages(imageDtos);
+        }
+        
+        return dto;
+    }
+    
+    /**
+     * 암호화된 currentLocation 필드를 복호화
+     * @param encryptionUtil 암호화/복호화 유틸리티
+     */
+    public void decryptCurrentLocation(EncryptionUtil encryptionUtil) {
+        if (this.currentLocation != null && !this.currentLocation.isEmpty()) {
+            try {
+                this.currentLocation = encryptionUtil.decrypt(this.currentLocation);
+            } catch (Exception e) {
+                // 복호화 실패 시 원래 값 유지
+            }
+        }
     }
     
     /**
