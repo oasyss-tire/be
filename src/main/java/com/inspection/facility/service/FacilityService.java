@@ -1044,4 +1044,33 @@ public class FacilityService {
         
         return result;
     }
+
+    /**
+     * 사용연한(useful_life_months)만 수정하는 메소드
+     */
+    @Transactional
+    public FacilityDTO updateUsefulLifeMonths(Long facilityId, Integer usefulLifeMonths, String usefulLifeUpdateReason) {
+        Facility facility = facilityRepository.findById(facilityId)
+                .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + facilityId));
+        
+        facility.setUsefulLifeMonths(usefulLifeMonths);
+        facility.setUsefulLifeUpdateReason(usefulLifeUpdateReason);
+        
+        // 사용연한이 변경되면 보증 만료일도 재계산
+        if (facility.getInstallationDate() != null) {
+            LocalDateTime newWarrantyEndDate = facility.getInstallationDate().plusMonths(usefulLifeMonths);
+            facility.setWarrantyEndDate(newWarrantyEndDate);
+        }
+        
+        // 현재 로그인한 사용자 정보를 이용해 updatedBy 설정
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated() && 
+            !"anonymousUser".equals(authentication.getPrincipal())) {
+            String userId = authentication.getName();
+            facility.setUpdatedBy(userId);
+        }
+        
+        Facility updatedFacility = facilityRepository.save(facility);
+        return convertToDTO(updatedFacility);
+    }
 } 

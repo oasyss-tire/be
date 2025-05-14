@@ -1,7 +1,6 @@
 package com.inspection.facility.entity;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import org.springframework.data.annotation.CreatedDate;
@@ -65,6 +64,7 @@ public class Facility {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "status_code")
     private Code status; // 현재상태 (Code 테이블 참조)
+
     
     @Column(name = "current_value", precision = 19, scale = 2)
     private BigDecimal currentValue; // 현재 가치(감가상각 후)
@@ -113,4 +113,7 @@ public class Facility {
     
     @Column(name = "discarded_by", length = 50)
     private String discardedBy; // 폐기 처리자 ID
+    
+    @Column(name = "useful_life_update_reason", length = 500)
+    private String usefulLifeUpdateReason; // 사용연한 수정 이유
 }

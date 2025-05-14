@@ -22,8 +22,8 @@ import com.inspection.as.dto.ServiceRequestImageDTO;
 import com.inspection.as.dto.UpdateServiceRequestDTO;
 import com.inspection.as.entity.ServiceRequest;
 import com.inspection.as.entity.ServiceRequestImage;
-import com.inspection.as.repository.ServiceRequestRepository;
 import com.inspection.as.repository.ServiceRequestImageRepository;
+import com.inspection.as.repository.ServiceRequestRepository;
 import com.inspection.entity.Code;
 import com.inspection.entity.Company;
 import com.inspection.entity.User;
@@ -392,6 +392,9 @@ public class ServiceRequestService {
         // 접수번호 생성
         String requestNumber = generateRequestNumber();
         
+        // 시설물 유형에 따른 담당 부서 결정
+        String departmentTypeCode = determineDepartmentType(facility.getFacilityType().getCodeId());
+        
         // ServiceRequest 객체 생성
         ServiceRequest serviceRequest = ServiceRequest.builder()
                 .requestNumber(requestNumber)
@@ -406,6 +409,7 @@ public class ServiceRequestService {
                 .status(status)
                 .notes(dto.getNotes())
                 .originalLocationCompanyId(originalLocationCompanyId)  // 원래 위치 회사 ID 저장
+                .departmentType(departmentTypeCode)  // 담당 부서 코드 설정
                 .build();
         
         ServiceRequest savedServiceRequest = serviceRequestRepository.save(serviceRequest);
@@ -473,6 +477,12 @@ public class ServiceRequestService {
         Code serviceStatus = codeRepository.findById("002010_0001") // 접수 중 상태 코드
                 .orElseThrow(() -> new EntityNotFoundException("서비스 요청 상태 코드를 찾을 수 없습니다: 002010_0001"));
         
+        // 시설물 유형에 따른 담당 부서 결정
+        String departmentTypeCode = dto.getDepartmentTypeCode();
+        if (departmentTypeCode == null) {
+            departmentTypeCode = determineDepartmentType(facility.getFacilityType().getCodeId());
+        }
+        
         // ServiceRequest 엔티티 생성
         ServiceRequest serviceRequest = ServiceRequest.builder()
                 .requestNumber(requestNumber)
@@ -489,6 +499,7 @@ public class ServiceRequestService {
                 .status(serviceStatus) // 서비스 요청 상태 설정
                 .cost(dto.getCost())
                 .notes(dto.getNotes())
+                .departmentType(departmentTypeCode)  // 담당 부서 코드 설정
                 .build();
         
         // 시설물 상태 업데이트: 수리중(002003_0002)
@@ -577,6 +588,11 @@ public class ServiceRequestService {
         // 비고 수정 (선택적)
         if (dto.getNotes() != null) {
             serviceRequest.setNotes(dto.getNotes());
+        }
+        
+        // 담당 부서 수정 (선택적)
+        if (dto.getDepartmentTypeCode() != null) {
+            serviceRequest.setDepartmentType(dto.getDepartmentTypeCode());
         }
         
         // 저장 및 DTO 변환
@@ -694,6 +710,7 @@ public class ServiceRequestService {
         serviceRequest.setCompletionDate(LocalDateTime.now());
         serviceRequest.setManager(manager);
         serviceRequest.setCost(dto.getCost());
+        serviceRequest.setRepairComment(dto.getRepairComment());
         
         // 서비스 요청 상태를 "AS 수리완료"로 변경
         Code serviceStatus = codeRepository.findById("002010_0003") // AS 수리완료 상태 코드
@@ -948,6 +965,26 @@ public class ServiceRequestService {
         } catch (IOException e) {
             log.error("이미지 저장 중 오류 발생: {}", e.getMessage(), e);
             throw new RuntimeException("이미지 저장 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * 시설물 유형 코드에 따라 담당 부서를 결정하는 메서드
+     * @param facilityTypeCode 시설물 유형 코드
+     * @return 담당 부서 유형 코드 (003001_0001: 메인장비팀, 003001_0002: 전기팀, 003001_0003: 시설팀)
+     */
+    private String determineDepartmentType(String facilityTypeCode) {
+        if (facilityTypeCode == null) {
+            return "003001_0001"; // 기본값: 메인장비팀
+        }
+        
+        // 시설물 유형 코드에 따른 부서 분류
+        if (facilityTypeCode.equals("002001_0010")) {
+            return "003001_0002"; // 전기팀
+        } else if (facilityTypeCode.equals("002001_0011") || facilityTypeCode.equals("002001_0012")) {
+            return "003001_0003"; // 시설팀
+        } else {
+            return "003001_0001"; // 메인장비팀 (002001_0001 ~ 002001_0009)
         }
     }
 } 

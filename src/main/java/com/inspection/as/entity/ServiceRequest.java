@@ -1,6 +1,5 @@
 package com.inspection.as.entity;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -96,8 +95,14 @@ public class ServiceRequest {
     @Column(name = "notes", length = 500)
     private String notes;  // 비고
     
+    @Column(name = "repair_comment", length = 2000)
+    private String repairComment;  // 수리 코멘트 (수리 내용, 문제 원인 등)
+    
     @Column(name = "original_location_company_id")
     private Long originalLocationCompanyId;  // 원래 시설물 위치 회사 ID (AS 접수 시 저장)
+    
+    @Column(name = "department_type", length = 30)
+    private String departmentType;  // 담당 부서 유형 (메인장비팀, 전기팀, 시설팀)
     
     @OneToMany(mappedBy = "serviceRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ServiceHistory> serviceHistories;

@@ -26,6 +26,7 @@ import com.inspection.facility.dto.FacilityCreateRequest;
 import com.inspection.facility.dto.FacilityDTO;
 import com.inspection.facility.dto.FacilitySearchRequest;
 import com.inspection.facility.dto.FacilityUpdateRequest;
+import com.inspection.facility.dto.FacilityUsefulLifeUpdateDto;
 import com.inspection.facility.service.FacilityService;
 
 import jakarta.validation.Valid;
@@ -151,5 +152,18 @@ public class FacilityController {
     public ResponseEntity<Map<String, Object>> getFacilityCountsByType() {
         Map<String, Object> counts = facilityService.getFacilityCountsByType();
         return ResponseEntity.ok(counts);
+    }
+    
+    /**
+     * 사용연한만 수정하는 API
+     */
+    @PutMapping("/useful-life")
+    public ResponseEntity<FacilityDTO> updateUsefulLifeMonths(
+            @Valid @RequestBody FacilityUsefulLifeUpdateDto request) {
+        FacilityDTO updatedFacility = facilityService.updateUsefulLifeMonths(
+                request.getId(), 
+                request.getUsefulLifeMonths(), 
+                request.getUsefulLifeUpdateReason());
+        return ResponseEntity.ok(updatedFacility);
     }
 } 

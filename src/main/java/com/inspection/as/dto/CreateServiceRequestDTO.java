@@ -53,6 +53,8 @@ public class CreateServiceRequestDTO {
     @Size(max = 500, message = "비고는 최대 500자까지 입력 가능합니다.")
     private String notes;
     
+    private String departmentTypeCode;  // 담당 부서 유형 코드 (003001_0001: 메인장비팀, 003001_0002: 전기팀, 003001_0003: 시설팀)
+    
     @Builder.Default
     private Boolean isReceived = false;
     
