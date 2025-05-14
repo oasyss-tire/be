@@ -36,6 +36,10 @@ public class ServiceRequestDTO {
     private String statusName;            // 시설물 상태명
     private String currentLocation;       // 현재 위치(주소)
     
+    // 지부 그룹 정보 추가
+    private String branchGroupId;         // 지부 그룹 ID
+    private String branchGroupName;       // 지부 그룹명
+    
     // 서비스 요청 상태 필드
     private String serviceStatusCode;     // 서비스 요청 상태 코드
     private String serviceStatusName;     // 서비스 요청 상태명
@@ -84,6 +88,10 @@ public class ServiceRequestDTO {
                 .statusName(entity.getFacility().getStatus() != null ? entity.getFacility().getStatus().getCodeName() : null)
                 .currentLocation(entity.getFacility().getLocationCompany() != null ? entity.getFacility().getLocationCompany().getAddress() : null)
                 
+                // 지부 그룹 정보 설정
+                .branchGroupId(getBranchGroupId(entity.getFacility()))
+                .branchGroupName(getBranchGroupName(entity.getFacility()))
+                
                 // 서비스 요청 상태 필드
                 .serviceStatusCode(entity.getStatus() != null ? entity.getStatus().getCodeId() : null)
                 .serviceStatusName(entity.getStatus() != null ? entity.getStatus().getCodeName() : null)
@@ -110,6 +118,42 @@ public class ServiceRequestDTO {
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
+    }
+    
+    /**
+     * 시설물의 위치 회사 또는 소유 회사에서 지부 그룹 ID를 가져오는 유틸리티 메서드
+     */
+    private static String getBranchGroupId(Facility facility) {
+        if (facility == null) return null;
+        
+        // 위치 회사 정보가 있으면 우선 사용
+        if (facility.getLocationCompany() != null && facility.getLocationCompany().getBranchGroup() != null) {
+            return facility.getLocationCompany().getBranchGroup().getCodeId();
+        }
+        // 없으면 소유 회사 정보 사용
+        else if (facility.getOwnerCompany() != null && facility.getOwnerCompany().getBranchGroup() != null) {
+            return facility.getOwnerCompany().getBranchGroup().getCodeId();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 시설물의 위치 회사 또는 소유 회사에서 지부 그룹명을 가져오는 유틸리티 메서드
+     */
+    private static String getBranchGroupName(Facility facility) {
+        if (facility == null) return null;
+        
+        // 위치 회사 정보가 있으면 우선 사용
+        if (facility.getLocationCompany() != null && facility.getLocationCompany().getBranchGroup() != null) {
+            return facility.getLocationCompany().getBranchGroup().getCodeName();
+        }
+        // 없으면 소유 회사 정보 사용
+        else if (facility.getOwnerCompany() != null && facility.getOwnerCompany().getBranchGroup() != null) {
+            return facility.getOwnerCompany().getBranchGroup().getCodeName();
+        }
+        
+        return null;
     }
     
     /**

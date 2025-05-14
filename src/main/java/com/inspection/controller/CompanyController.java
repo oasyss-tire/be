@@ -47,6 +47,8 @@ import com.inspection.dto.BatchResponseDTO;
 import com.inspection.dto.PageResponseDTO;
 import com.inspection.service.CompanyService;
 import com.inspection.service.CompanyImageStorageService;
+import com.inspection.entity.Code;
+import com.inspection.service.CodeService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +61,7 @@ public class CompanyController {
     
     private final CompanyService companyService;
     private final CompanyImageStorageService companyImageStorageService;
+    private final CodeService codeService;
     
     // 회사 생성 API (JSON 방식)
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -551,6 +554,23 @@ public class CompanyController {
             log.error("회사 일괄 등록 중 오류 발생: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "서버 오류", "message", "회사 일괄 등록 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * 지부 그룹 코드 목록 조회 API
+     * 회사 등록/수정 시 지부 그룹 선택에 사용됨
+     */
+    @GetMapping("/branch-groups")
+    public ResponseEntity<?> getBranchGroups() {
+        try {
+            // 003002 코드그룹은 지부 그룹을 의미함
+            List<Code> branchGroups = codeService.getActiveCodesByGroupId("003002");
+            return ResponseEntity.ok(branchGroups);
+        } catch (Exception e) {
+            log.error("지부 그룹 코드 조회 중 오류 발생: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "서버 오류", "message", "지부 그룹 코드 조회 중 오류가 발생했습니다."));
         }
     }
 } 

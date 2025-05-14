@@ -56,11 +56,18 @@ public class ServiceRequestService {
     private final ServiceRequestImageService imageService;
     
     /**
-     * 모든 AS 접수 조회
+     * 모든 AS 접수 조회 (지부 그룹 정보 포함)
      */
     @Transactional(readOnly = true)
     public List<ServiceRequestDTO> getAllServiceRequests() {
-        List<ServiceRequestDTO> dtoList = serviceRequestRepository.findAll().stream()
+        List<ServiceRequest> serviceRequests = serviceRequestRepository.findAll();
+        
+        // 각 ServiceRequest의 Facility에 지부 그룹 정보 로드
+        for (ServiceRequest sr : serviceRequests) {
+            loadFacilityBranchGroups(sr.getFacility());
+        }
+        
+        List<ServiceRequestDTO> dtoList = serviceRequests.stream()
                 .map(ServiceRequestDTO::fromEntity)
                 .collect(Collectors.toList());
         
@@ -79,12 +86,18 @@ public class ServiceRequestService {
     }
     
     /**
-     * 페이징된 AS 접수 조회
+     * 페이징된 AS 접수 조회 (지부 그룹 정보 포함)
      */
     @Transactional(readOnly = true)
     public Page<ServiceRequestDTO> getServiceRequests(Pageable pageable) {
-        Page<ServiceRequestDTO> dtoPage = serviceRequestRepository.findAll(pageable)
-                .map(ServiceRequestDTO::fromEntity);
+        Page<ServiceRequest> serviceRequestPage = serviceRequestRepository.findAll(pageable);
+        
+        // 각 ServiceRequest의 Facility에 지부 그룹 정보 로드
+        for (ServiceRequest sr : serviceRequestPage.getContent()) {
+            loadFacilityBranchGroups(sr.getFacility());
+        }
+        
+        Page<ServiceRequestDTO> dtoPage = serviceRequestPage.map(ServiceRequestDTO::fromEntity);
         
         // 회사 정보 설정 및 현재 위치 복호화
         dtoPage.getContent().forEach(dto -> {
@@ -105,8 +118,7 @@ public class ServiceRequestService {
      */
     @Transactional(readOnly = true)
     public ServiceRequestDTO getServiceRequestById(Long id) {
-        ServiceRequest serviceRequest = serviceRequestRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("AS 접수를 찾을 수 없습니다: " + id));
+        ServiceRequest serviceRequest = findServiceRequestById(id);
         
         ServiceRequestDTO dto = ServiceRequestDTO.fromEntity(serviceRequest);
         
@@ -123,8 +135,7 @@ public class ServiceRequestService {
      */
     @Transactional(readOnly = true)
     public ServiceRequestDTO getServiceRequestWithAll(Long id) {
-        ServiceRequest serviceRequest = serviceRequestRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("AS 접수를 찾을 수 없습니다: " + id));
+        ServiceRequest serviceRequest = findServiceRequestById(id);
         
         ServiceRequestDTO dto = ServiceRequestDTO.fromEntityWithAll(serviceRequest);
         
@@ -134,6 +145,38 @@ public class ServiceRequestService {
         dto.decryptCurrentLocation(encryptionUtil);
         
         return dto;
+    }
+    
+    /**
+     * ID로 ServiceRequest를 조회하고 필요한 관계를 모두 초기화하는 private 메서드
+     * (지부 그룹 정보를 포함하여 필요한 모든 연관 엔티티 로드)
+     */
+    private ServiceRequest findServiceRequestById(Long id) {
+        ServiceRequest serviceRequest = serviceRequestRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("AS 접수를 찾을 수 없습니다: " + id));
+        
+        // Facility의 엔티티 관계를 필요에 따라 초기화
+        Facility facility = serviceRequest.getFacility();
+        
+        // 위치 회사가 있으면 지부 그룹 정보 초기화
+        if (facility.getLocationCompany() != null) {
+            // 회사의 지부 그룹 정보 초기화
+            if (facility.getLocationCompany().getBranchGroup() != null) {
+                facility.getLocationCompany().getBranchGroup().getCodeId();  // 지부 그룹 ID 초기화
+                facility.getLocationCompany().getBranchGroup().getCodeName(); // 지부 그룹 이름 초기화
+            }
+        }
+        
+        // 소유 회사가 있으면 지부 그룹 정보 초기화
+        if (facility.getOwnerCompany() != null) {
+            // 회사의 지부 그룹 정보 초기화
+            if (facility.getOwnerCompany().getBranchGroup() != null) {
+                facility.getOwnerCompany().getBranchGroup().getCodeId();  // 지부 그룹 ID 초기화
+                facility.getOwnerCompany().getBranchGroup().getCodeName(); // 지부 그룹 이름 초기화
+            }
+        }
+        
+        return serviceRequest;
     }
     
     /**
@@ -165,14 +208,19 @@ public class ServiceRequestService {
      */
     @Transactional(readOnly = true)
     public List<ServiceRequestDTO> getServiceRequestsByFacilityIdOrderByLatest(Long facilityId) {
-        List<ServiceRequestDTO> dtoList = serviceRequestRepository.findByFacilityFacilityIdOrderByServiceRequestIdDesc(facilityId).stream()
+        // 시설물 상세 정보를 로드 (지부 그룹 정보 포함)
+        Facility facility = loadFacilityWithBranchGroups(facilityId);
+        
+        List<ServiceRequest> serviceRequests = serviceRequestRepository.findByFacilityFacilityIdOrderByServiceRequestIdDesc(facilityId);
+        
+        // 시설물 정보를 모든 ServiceRequest에 설정 (지부 그룹 정보 포함)
+        serviceRequests.forEach(sr -> sr.setFacility(facility));
+        
+        List<ServiceRequestDTO> dtoList = serviceRequests.stream()
                 .map(ServiceRequestDTO::fromEntity)
                 .collect(Collectors.toList());
         
         // 회사 정보 설정
-        Facility facility = facilityRepository.findById(facilityId)
-                .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + facilityId));
-        
         Long companyId = getCompanyIdFromFacility(facility);
         String companyName = getCompanyName(companyId);
         
@@ -986,5 +1034,36 @@ public class ServiceRequestService {
         } else {
             return "003001_0001"; // 메인장비팀 (002001_0001 ~ 002001_0009)
         }
+    }
+    
+    /**
+     * 시설물에 지부 그룹 정보를 로딩하는 유틸리티 메서드
+     */
+    private void loadFacilityBranchGroups(Facility facility) {
+        if (facility != null) {
+            // 위치 회사가 있으면 지부 그룹 정보 초기화
+            if (facility.getLocationCompany() != null && facility.getLocationCompany().getBranchGroup() != null) {
+                facility.getLocationCompany().getBranchGroup().getCodeId();  // 지부 그룹 ID 초기화
+                facility.getLocationCompany().getBranchGroup().getCodeName(); // 지부 그룹 이름 초기화
+            }
+            
+            // 소유 회사가 있으면 지부 그룹 정보 초기화
+            if (facility.getOwnerCompany() != null && facility.getOwnerCompany().getBranchGroup() != null) {
+                facility.getOwnerCompany().getBranchGroup().getCodeId();  // 지부 그룹 ID 초기화
+                facility.getOwnerCompany().getBranchGroup().getCodeName(); // 지부 그룹 이름 초기화
+            }
+        }
+    }
+    
+    /**
+     * 시설물의 상세 정보와 지부 그룹 정보를 함께 로드하는 유틸리티 메서드
+     */
+    private Facility loadFacilityWithBranchGroups(Long facilityId) {
+        Facility facility = facilityRepository.findById(facilityId)
+                .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + facilityId));
+        
+        loadFacilityBranchGroups(facility);
+        
+        return facility;
     }
 } 

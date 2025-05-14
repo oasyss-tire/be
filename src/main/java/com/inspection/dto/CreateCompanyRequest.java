@@ -3,6 +3,7 @@ package com.inspection.dto;
 import java.time.LocalDate;
 
 import com.inspection.entity.Company;
+import com.inspection.entity.Code;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -32,6 +33,7 @@ public class CreateCompanyRequest {
     private String businessType;     // 업태
     private String businessCategory; // 종목
     private String createdBy;        // 등록자
+    private String branchGroupId;    // 지부 그룹 ID
     
     // DTO -> Entity 변환 메서드
     public Company toEntity() {
@@ -58,6 +60,14 @@ public class CreateCompanyRequest {
         company.setBusinessType(this.businessType);
         company.setBusinessCategory(this.businessCategory);
         company.setCreatedBy(this.createdBy);
+        
+        // 지부 그룹은 ID만 설정하고 실제 객체는 서비스에서 처리
+        if (this.branchGroupId != null && !this.branchGroupId.isEmpty()) {
+            Code branchGroup = new Code();
+            branchGroup.setCodeId(this.branchGroupId);
+            company.setBranchGroup(branchGroup);
+        }
+        
         return company;
     }
 } 

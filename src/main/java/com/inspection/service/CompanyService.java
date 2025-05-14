@@ -38,6 +38,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import com.inspection.entity.Code;
+import com.inspection.repository.CodeRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -53,6 +55,7 @@ public class CompanyService {
     private final ContractService contractService;
     private final TrusteeService trusteeService;
     private final PasswordEncoder passwordEncoder;
+    private final CodeRepository codeRepository;
     
     /**
      * 새로운 회사를 생성합니다.
@@ -71,6 +74,13 @@ public class CompanyService {
         // 등록자 정보가 없는 경우 기본값 설정
         if (company.getCreatedBy() == null || company.getCreatedBy().isEmpty()) {
             company.setCreatedBy("시스템");
+        }
+        
+        // 지부 그룹 설정
+        if (request.getBranchGroupId() != null && !request.getBranchGroupId().isEmpty()) {
+            Code branchGroup = codeRepository.findById(request.getBranchGroupId())
+                .orElseThrow(() -> new RuntimeException("해당 지부 그룹을 찾을 수 없습니다. ID: " + request.getBranchGroupId()));
+            company.setBranchGroup(branchGroup);
         }
         
         // 민감한 개인정보 암호화
@@ -326,6 +336,15 @@ public class CompanyService {
             company.setInsuranceStartDate(request.getInsuranceStartDate());
             company.setInsuranceEndDate(request.getInsuranceEndDate());
             company.setManagerName(request.getManagerName());
+            
+            // 지부 그룹 업데이트
+            if (request.getBranchGroupId() != null && !request.getBranchGroupId().isEmpty()) {
+                Code branchGroup = codeRepository.findById(request.getBranchGroupId())
+                    .orElseThrow(() -> new RuntimeException("해당 지부 그룹을 찾을 수 없습니다. ID: " + request.getBranchGroupId()));
+                company.setBranchGroup(branchGroup);
+            } else {
+                company.setBranchGroup(null); // 지부 그룹 제거
+            }
             
             // 민감 정보 필드 암호화하여 업데이트
             if (request.getEmail() != null && !request.getEmail().isEmpty()) {

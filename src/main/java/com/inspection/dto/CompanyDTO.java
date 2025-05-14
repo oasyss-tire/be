@@ -36,6 +36,10 @@ public class CompanyDTO {
     private LocalDateTime createdAt;  // 등록일
     private LocalDateTime updatedAt;  // 수정일
     
+    // 지부 그룹 정보
+    private String branchGroupId;    // 지부 그룹 ID
+    private String branchGroupName;  // 지부 그룹명
+    
     // 이미지 정보
     private CompanyImageDTO imageInfo;
     
@@ -67,6 +71,12 @@ public class CompanyDTO {
         dto.setCreatedBy(company.getCreatedBy());
         dto.setCreatedAt(company.getCreatedAt());
         dto.setUpdatedAt(company.getUpdatedAt());
+        
+        // 지부 그룹 정보 설정
+        if (company.getBranchGroup() != null) {
+            dto.setBranchGroupId(company.getBranchGroup().getCodeId());
+            dto.setBranchGroupName(company.getBranchGroup().getCodeName());
+        }
         
         if (company.getCompanyImage() != null) {
             dto.setImageInfo(CompanyImageDTO.fromEntity(company.getCompanyImage()));

@@ -84,6 +84,11 @@ public class Company {
     @Column(length = 100)
     private String businessCategory; // 종목 (상품대리,기타도급)
     
+    // 지부 그룹 필드 추가
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "branch_group_id")
+    private Code branchGroup;       // 지부 그룹 (강원본부, 북부지부 등)
+    
     // 등록한 사람
     @Column(length = 50)
     private String createdBy;        // 등록자
