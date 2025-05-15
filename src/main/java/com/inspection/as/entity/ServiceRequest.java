@@ -101,8 +101,9 @@ public class ServiceRequest {
     @Column(name = "original_location_company_id")
     private Long originalLocationCompanyId;  // 원래 시설물 위치 회사 ID (AS 접수 시 저장)
     
-    @Column(name = "department_type", length = 30)
-    private String departmentType;  // 담당 부서 유형 (메인장비팀, 전기팀, 시설팀)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "department_type_code")
+    private Code departmentType;  // 담당 부서 유형 (메인장비팀, 전기팀, 시설팀)
     
     @OneToMany(mappedBy = "serviceRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ServiceHistory> serviceHistories;

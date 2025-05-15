@@ -19,6 +19,14 @@ public class UserResponseDTO {
     private Long companyId;    // 회사 ID
     private String companyName; // 회사명
     private String storeCode;   // 매장코드
+    
+    // 지부 그룹 관련 필드
+    private String branchGroupId;   // 담당 지부 그룹 코드
+    private String branchGroupName; // 담당 지부 그룹명
+    
+    // 담당 부서 관련 필드
+    private String departmentTypeId;   // 담당 부서 코드
+    private String departmentTypeName; // 담당 부서명
 
     public UserResponseDTO(User user) {
         this.id = user.getId();
@@ -34,6 +42,18 @@ public class UserResponseDTO {
             this.companyId = user.getCompany().getId();
             this.companyName = user.getCompany().getStoreName();
             this.storeCode = user.getCompany().getStoreCode();
+        }
+        
+        // 지부 그룹 정보 설정
+        if (user.getBranchGroup() != null) {
+            this.branchGroupId = user.getBranchGroup().getCodeId();
+            this.branchGroupName = user.getBranchGroup().getCodeName();
+        }
+        
+        // 담당 부서 정보 설정
+        if (user.getDepartmentType() != null) {
+            this.departmentTypeId = user.getDepartmentType().getCodeId();
+            this.departmentTypeName = user.getDepartmentType().getCodeName();
         }
     }
 } 

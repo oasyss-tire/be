@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -13,7 +14,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -455,9 +459,13 @@ public class InventoryClosingService {
      * @param date 조회할 날짜
      * @param companyId 회사 ID (선택적)
      * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
-     * @return 재고 상태 DTO 목록
+     * @param pageable 페이징 정보 (선택적)
+     * @return 페이징된 재고 상태 DTO
      */
-    public List<InventoryStatusDTO> getDailyInventoryStatus(LocalDate date, Long companyId, String facilityTypeCodeId) {
+    public Page<InventoryStatusDTO> getDailyInventoryStatus(LocalDate date, Long companyId, String facilityTypeCodeId, Pageable pageable) {
+        log.info("일별 재고 현황 조회 요청(페이징): {}, 회사ID: {}, 시설물유형: {}", date, companyId, facilityTypeCodeId);
+        long startTime = System.currentTimeMillis();
+        
         List<DailyInventoryClosing> closings;
         
         if (companyId != null && facilityTypeCodeId != null) {
@@ -473,9 +481,61 @@ public class InventoryClosingService {
             closings = dailyClosingRepository.findByClosingDate(date);
         }
         
-        return closings.stream()
+        // DTO로 변환
+        List<InventoryStatusDTO> statusList = closings.stream()
                 .map(this::convertToInventoryStatusDTO)
                 .collect(Collectors.toList());
+        
+        // 정렬 적용
+        if (pageable.getSort().isSorted()) {
+            pageable.getSort().forEach(order -> {
+                String property = order.getProperty();
+                Sort.Direction direction = order.getDirection();
+                
+                Comparator<InventoryStatusDTO> comparator = null;
+                switch (property) {
+                    case "companyName":
+                        comparator = Comparator.comparing(InventoryStatusDTO::getCompanyName,
+                                Comparator.nullsLast(String::compareTo));
+                        break;
+                    case "facilityTypeName":
+                        comparator = Comparator.comparing(InventoryStatusDTO::getFacilityTypeName,
+                                Comparator.nullsLast(String::compareTo));
+                        break;
+                    case "closingQuantity":
+                        comparator = Comparator.comparing(InventoryStatusDTO::getClosingQuantity,
+                                Comparator.nullsLast(Integer::compareTo));
+                        break;
+                    default:
+                        comparator = Comparator.comparing(InventoryStatusDTO::getCompanyName,
+                                Comparator.nullsLast(String::compareTo));
+                }
+                
+                if (direction.isDescending()) {
+                    comparator = comparator.reversed();
+                }
+                
+                Collections.sort(statusList, comparator);
+            });
+        }
+        
+        // 페이징 적용
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), statusList.size());
+        
+        if (start > end) {
+            start = 0;
+            end = Math.min(pageable.getPageSize(), statusList.size());
+        }
+        
+        List<InventoryStatusDTO> pageContent = statusList.subList(start, end);
+        Page<InventoryStatusDTO> page = new PageImpl<>(pageContent, pageable, statusList.size());
+        
+        long endTime = System.currentTimeMillis();
+        log.info("일별 재고 현황 조회 완료: 총 {}개 중 {}개 결과, 소요시간: {}ms", 
+                statusList.size(), pageContent.size(), (endTime - startTime));
+        
+        return page;
     }
     
     /**
@@ -484,9 +544,13 @@ public class InventoryClosingService {
      * @param month 조회할 월
      * @param companyId 회사 ID (선택적)
      * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
-     * @return 재고 상태 DTO 목록
+     * @param pageable 페이징 정보 (선택적)
+     * @return 페이징된 재고 상태 DTO
      */
-    public List<InventoryStatusDTO> getMonthlyInventoryStatus(int year, int month, Long companyId, String facilityTypeCodeId) {
+    public Page<InventoryStatusDTO> getMonthlyInventoryStatus(int year, int month, Long companyId, String facilityTypeCodeId, Pageable pageable) {
+        log.info("월별 재고 현황 조회 요청(페이징): {}-{}, 회사ID: {}, 시설물유형: {}", year, month, companyId, facilityTypeCodeId);
+        long startTime = System.currentTimeMillis();
+        
         List<MonthlyInventoryClosing> closings;
         
         if (companyId != null && facilityTypeCodeId != null) {
@@ -502,9 +566,86 @@ public class InventoryClosingService {
             closings = monthlyClosingRepository.findByYearAndMonth(year, month);
         }
         
-        return closings.stream()
+        // DTO로 변환
+        List<InventoryStatusDTO> statusList = closings.stream()
                 .map(this::convertToInventoryStatusDTO)
                 .collect(Collectors.toList());
+        
+        // 정렬 적용
+        if (pageable.getSort().isSorted()) {
+            pageable.getSort().forEach(order -> {
+                String property = order.getProperty();
+                Sort.Direction direction = order.getDirection();
+                
+                Comparator<InventoryStatusDTO> comparator = null;
+                switch (property) {
+                    case "companyName":
+                        comparator = Comparator.comparing(InventoryStatusDTO::getCompanyName,
+                                Comparator.nullsLast(String::compareTo));
+                        break;
+                    case "facilityTypeName":
+                        comparator = Comparator.comparing(InventoryStatusDTO::getFacilityTypeName,
+                                Comparator.nullsLast(String::compareTo));
+                        break;
+                    case "closingQuantity":
+                        comparator = Comparator.comparing(InventoryStatusDTO::getClosingQuantity,
+                                Comparator.nullsLast(Integer::compareTo));
+                        break;
+                    default:
+                        comparator = Comparator.comparing(InventoryStatusDTO::getCompanyName,
+                                Comparator.nullsLast(String::compareTo));
+                }
+                
+                if (direction.isDescending()) {
+                    comparator = comparator.reversed();
+                }
+                
+                Collections.sort(statusList, comparator);
+            });
+        }
+        
+        // 페이징 적용
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), statusList.size());
+        
+        if (start > end) {
+            start = 0;
+            end = Math.min(pageable.getPageSize(), statusList.size());
+        }
+        
+        List<InventoryStatusDTO> pageContent = statusList.subList(start, end);
+        Page<InventoryStatusDTO> page = new PageImpl<>(pageContent, pageable, statusList.size());
+        
+        long endTime = System.currentTimeMillis();
+        log.info("월별 재고 현황 조회 완료: 총 {}개 중 {}개 결과, 소요시간: {}ms", 
+                statusList.size(), pageContent.size(), (endTime - startTime));
+        
+        return page;
+    }
+    
+    /**
+     * 특정 일자의 재고 상태 조회 (페이징 없는 버전 - 하위 호환성 유지)
+     * @param date 조회할 날짜
+     * @param companyId 회사 ID (선택적)
+     * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
+     * @return 재고 상태 DTO 목록
+     */
+    public List<InventoryStatusDTO> getDailyInventoryStatus(LocalDate date, Long companyId, String facilityTypeCodeId) {
+        // PageRequest.of(0, Integer.MAX_VALUE)를 사용하여 모든 결과 가져오기
+        return getDailyInventoryStatus(date, companyId, facilityTypeCodeId, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+    }
+    
+    /**
+     * 특정 연월의 재고 상태 조회 (페이징 없는 버전 - 하위 호환성 유지)
+     * @param year 조회할 연도
+     * @param month 조회할 월
+     * @param companyId 회사 ID (선택적)
+     * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
+     * @return 재고 상태 DTO 목록
+     */
+    public List<InventoryStatusDTO> getMonthlyInventoryStatus(int year, int month, Long companyId, String facilityTypeCodeId) {
+        // PageRequest.of(0, Integer.MAX_VALUE)를 사용하여 모든 결과 가져오기
+        return getMonthlyInventoryStatus(year, month, companyId, facilityTypeCodeId, PageRequest.of(0, Integer.MAX_VALUE)).getContent();
     }
     
     /**
@@ -805,7 +946,16 @@ public class InventoryClosingService {
         dto.setClosingQuantity(closing.getClosingQuantity());
         dto.setIsClosed(closing.getIsClosed());
         dto.setClosedAt(closing.getClosedAt());
-        dto.setClosedBy(closing.getClosedBy() != null ? closing.getClosedBy().getId() : null);
+        
+        // User 정보 설정
+        if (closing.getClosedBy() != null) {
+            dto.setClosedBy(closing.getClosedBy().getId());
+            dto.setUserId(closing.getClosedBy().getUserId());
+            dto.setUserName(closing.getClosedBy().getUserName());
+        } else {
+            dto.setClosedBy(null);
+        }
+        
         return dto;
     }
     
@@ -829,7 +979,16 @@ public class InventoryClosingService {
         dto.setClosingQuantity(closing.getClosingQuantity());
         dto.setIsClosed(closing.getIsClosed());
         dto.setClosedAt(closing.getClosedAt());
-        dto.setClosedBy(closing.getClosedBy() != null ? closing.getClosedBy().getId() : null);
+        
+        // User 정보 설정
+        if (closing.getClosedBy() != null) {
+            dto.setClosedBy(closing.getClosedBy().getId());
+            dto.setUserId(closing.getClosedBy().getUserId());
+            dto.setUserName(closing.getClosedBy().getUserName());
+        } else {
+            dto.setClosedBy(null);
+        }
+        
         return dto;
     }
 
@@ -901,7 +1060,125 @@ public class InventoryClosingService {
             // 현재 시간 (모든 트랜잭션에 공통으로 사용)
             LocalDateTime currentTime = LocalDateTime.now();
             
-            // 마감 데이터를 DTO로 변환
+            // 마감 데이터가 없는 경우 처리
+            if (closingsPage.getTotalElements() == 0) {
+                log.info("마감 데이터가 없어 트랜잭션만으로 현재 재고를 계산합니다.");
+                
+                // 회사 목록 조회
+                List<Company> companies;
+                if (companyId != null) {
+                    companies = companyRepository.findById(companyId)
+                            .map(List::of)
+                            .orElse(Collections.emptyList());
+                } else {
+                    companies = companyRepository.findAll();
+                }
+                
+                // 시설물 유형 목록 조회
+                List<Code> facilityTypes;
+                if (facilityTypeCodeId != null) {
+                    facilityTypes = codeRepository.findById(facilityTypeCodeId)
+                            .map(List::of)
+                            .orElse(Collections.emptyList());
+                } else {
+                    facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
+                }
+                
+                if (companies.isEmpty() || facilityTypes.isEmpty()) {
+                    log.warn("조회할 회사 또는 시설물 유형이 없습니다.");
+                    return Page.empty(pageable);
+                }
+                
+                // 결과 목록 생성
+                List<CurrentInventoryStatusDTO> resultList = new ArrayList<>();
+                LocalDateTime veryPastTime = LocalDateTime.of(2000, 1, 1, 0, 0);
+                
+                // 각 회사와 시설물 유형 조합에 대해 트랜잭션 조회
+                for (Company company : companies) {
+                    for (Code facilityType : facilityTypes) {
+                        try {
+                            // 전체 트랜잭션 기간의 입출고 조회
+                            int totalInbound = transactionRepository.countInboundTransactionsBetweenClosingTimes(
+                                    veryPastTime, currentTime, company.getId(), facilityType.getCodeId());
+                            
+                            int totalOutbound = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
+                                    veryPastTime, currentTime, company.getId(), facilityType.getCodeId());
+                            
+                            // 현재 재고 = 총 입고 - 총 출고
+                            int currentQuantity = totalInbound - totalOutbound;
+                            
+                            // 결과 추가
+                            resultList.add(CurrentInventoryStatusDTO.builder()
+                                    .companyId(company.getId())
+                                    .companyName(company.getStoreName())
+                                    .facilityTypeCodeId(facilityType.getCodeId())
+                                    .facilityTypeName(facilityType.getCodeName())
+                                    .latestClosingDate(null)  // 마감 날짜 없음
+                                    .baseQuantity(0)          // 기준 수량 0
+                                    .recentInbound(totalInbound)
+                                    .recentOutbound(totalOutbound)
+                                    .currentQuantity(currentQuantity)
+                                    .build());
+                        } catch (Exception e) {
+                            log.error("트랜잭션 조회 중 오류: 회사ID={}, 시설물유형={}, 오류={}", 
+                                    company.getId(), facilityType.getCodeId(), e.getMessage());
+                        }
+                    }
+                }
+                
+                // 정렬 및 페이징 적용
+                if (pageable.getSort().isSorted()) {
+                    pageable.getSort().forEach(order -> {
+                        String property = order.getProperty();
+                        Sort.Direction direction = order.getDirection();
+                        
+                        Comparator<CurrentInventoryStatusDTO> comparator = null;
+                        switch (property) {
+                            case "companyName":
+                                comparator = Comparator.comparing(CurrentInventoryStatusDTO::getCompanyName,
+                                        Comparator.nullsLast(String::compareTo));
+                                break;
+                            case "facilityTypeName":
+                                comparator = Comparator.comparing(CurrentInventoryStatusDTO::getFacilityTypeName,
+                                        Comparator.nullsLast(String::compareTo));
+                                break;
+                            case "currentQuantity":
+                                comparator = Comparator.comparing(CurrentInventoryStatusDTO::getCurrentQuantity,
+                                        Comparator.nullsLast(Integer::compareTo));
+                                break;
+                            default:
+                                comparator = Comparator.comparing(CurrentInventoryStatusDTO::getCompanyName,
+                                        Comparator.nullsLast(String::compareTo));
+                        }
+                        
+                        if (direction.isDescending()) {
+                            comparator = comparator.reversed();
+                        }
+                        
+                        Collections.sort(resultList, comparator);
+                    });
+                }
+                
+                // 페이징 적용
+                int start = (int) pageable.getOffset();
+                int end = Math.min((start + pageable.getPageSize()), resultList.size());
+                
+                if (start > end) {
+                    start = 0;
+                    end = Math.min(pageable.getPageSize(), resultList.size());
+                }
+                
+                List<CurrentInventoryStatusDTO> pageContent = resultList.subList(start, end);
+                Page<CurrentInventoryStatusDTO> page = new PageImpl<>(pageContent, pageable, resultList.size());
+                
+                long endTime = System.currentTimeMillis();
+                log.info("트랜잭션 기반 현재 재고 현황 조회 완료: 총 {}개 중 {}개 결과, 소요시간: {}ms", 
+                        resultList.size(), pageContent.size(), (endTime - startTime));
+                
+                return page;
+            }
+            
+            // 마감 데이터를 DTO로 변환 (기존 로직)
             Page<CurrentInventoryStatusDTO> resultPage = closingsPage.map(closing -> {
                 try {
                     // 회사 및 시설물 유형 정보
@@ -961,5 +1238,178 @@ public class InventoryClosingService {
             log.error("DB 페이징 현재 재고 현황 조회 중 오류: {}", e.getMessage());
             return Page.empty(pageable);
         }
+    }
+
+    /**
+     * 특정 연월의 모든 일자(1일부터 말일까지)에 대한 마감 상태 조회
+     * @param year 조회할 연도
+     * @param month 조회할 월
+     * @param companyId 회사 ID (선택적)
+     * @return 해당 월의 모든 일자별 마감 상태 목록
+     */
+    public List<Map<String, Object>> getDailyClosingStatusByMonth(int year, int month, Long companyId) {
+        log.info("월별 일일 마감 상태 조회: {}년 {}월, 회사ID: {}", year, month, companyId);
+        long startTime = System.currentTimeMillis();
+        
+        // 1. 회사 정보 조회
+        Company company = null;
+        if (companyId != null) {
+            company = companyRepository.findById(companyId)
+                    .orElseThrow(() -> new RuntimeException("회사 정보를 찾을 수 없습니다: " + companyId));
+        }
+        
+        // 2. 해당 월의 시작일과 종료일 계산
+        LocalDate startDate = LocalDate.of(year, month, 1);
+        LocalDate endDate = startDate.plusMonths(1).minusDays(1);
+        
+        // 3. 해당 월의 모든 날짜에 대한 마감 상태 맵 생성
+        Map<LocalDate, Boolean> closingStatusMap = new HashMap<>();
+        Map<LocalDate, LocalDateTime> closingTimeMap = new HashMap<>();
+        
+        // 4. 해당 월에 마감된 일자 조회
+        List<DailyInventoryClosing> closings;
+        if (companyId != null) {
+            closings = dailyClosingRepository.findByCompanyIdAndClosingDateBetweenAndIsClosed(
+                    companyId, startDate, endDate, true);
+        } else {
+            closings = dailyClosingRepository.findByClosingDateBetweenAndIsClosed(
+                    startDate, endDate, true);
+        }
+        
+        // 일자별 마감 데이터 그룹화
+        Map<LocalDate, List<DailyInventoryClosing>> closingsByDate = closings.stream()
+                .collect(Collectors.groupingBy(DailyInventoryClosing::getClosingDate));
+        
+        // 5. 결과 목록 생성 (1일부터 말일까지)
+        List<Map<String, Object>> resultList = new ArrayList<>();
+        LocalDate currentDate = startDate;
+        
+        while (!currentDate.isAfter(endDate)) {
+            Map<String, Object> dayStatus = new HashMap<>();
+            dayStatus.put("date", currentDate);
+            
+            // 해당 일자의 마감 데이터가 있는지 확인
+            List<DailyInventoryClosing> dayClosings = closingsByDate.getOrDefault(currentDate, new ArrayList<>());
+            
+            // 해당 일자에 대한 마감 상태 설정
+            boolean isClosed = !dayClosings.isEmpty();
+            
+            // 마감 시간 설정 (마감된 경우만)
+            LocalDateTime closedAt = null;
+            if (isClosed && !dayClosings.isEmpty()) {
+                // 가장 최근의 마감 시간 사용
+                closedAt = dayClosings.stream()
+                        .map(DailyInventoryClosing::getClosedAt)
+                        .filter(time -> time != null)
+                        .max(LocalDateTime::compareTo)
+                        .orElse(null);
+                
+                // 마감 처리자 정보 추가
+                DailyInventoryClosing latestClosing = dayClosings.stream()
+                        .filter(closing -> closing.getClosedAt() != null)
+                        .max(Comparator.comparing(DailyInventoryClosing::getClosedAt))
+                        .orElse(null);
+                
+                if (latestClosing != null && latestClosing.getClosedBy() != null) {
+                    User closedBy = latestClosing.getClosedBy();
+                    dayStatus.put("closedBy", closedBy.getUserId());
+                    dayStatus.put("closedByName", closedBy.getUserName());
+                }
+            }
+            
+            // 결과 맵에 정보 추가
+            dayStatus.put("isClosed", isClosed);
+            dayStatus.put("closedAt", closedAt);
+            dayStatus.put("dayOfMonth", currentDate.getDayOfMonth());
+            
+            resultList.add(dayStatus);
+            
+            // 다음 날짜로 이동
+            currentDate = currentDate.plusDays(1);
+        }
+        
+        long endTime = System.currentTimeMillis();
+        log.info("월별 일일 마감 상태 조회 완료: {}년 {}월, {}개 결과, 소요시간: {}ms", 
+                year, month, resultList.size(), (endTime - startTime));
+        
+        return resultList;
+    }
+
+    /**
+     * 특정 연도의 모든 월(1월부터 12월까지)에 대한 마감 상태 조회
+     * @param year 조회할 연도
+     * @param companyId 회사 ID (선택적)
+     * @return 해당 연도의 모든 월별 마감 상태 목록
+     */
+    public List<Map<String, Object>> getMonthlyClosingStatusByYear(int year, Long companyId) {
+        log.info("연간 월마감 상태 조회: {}년, 회사ID: {}", year, companyId);
+        long startTime = System.currentTimeMillis();
+        
+        // 1. 회사 정보 조회
+        Company company = null;
+        if (companyId != null) {
+            company = companyRepository.findById(companyId)
+                    .orElseThrow(() -> new RuntimeException("회사 정보를 찾을 수 없습니다: " + companyId));
+        }
+        
+        // 2. 해당 연도의 월마감 데이터 조회
+        List<MonthlyInventoryClosing> closings;
+        if (companyId != null) {
+            closings = monthlyClosingRepository.findByYearAndCompanyId(year, companyId);
+        } else {
+            closings = monthlyClosingRepository.findByYear(year);
+        }
+        
+        // 3. 월별 마감 데이터 그룹화
+        Map<Integer, List<MonthlyInventoryClosing>> closingsByMonth = closings.stream()
+                .collect(Collectors.groupingBy(MonthlyInventoryClosing::getMonth));
+        
+        // 4. 결과 목록 생성 (1월부터 12월까지)
+        List<Map<String, Object>> resultList = new ArrayList<>();
+        
+        for (int month = 1; month <= 12; month++) {
+            Map<String, Object> monthStatus = new HashMap<>();
+            monthStatus.put("year", year);
+            monthStatus.put("month", month);
+            
+            // 해당 월의 마감 데이터가 있는지 확인
+            List<MonthlyInventoryClosing> monthClosings = closingsByMonth.getOrDefault(month, new ArrayList<>());
+            
+            // 해당 월에 대한 마감 상태 설정
+            boolean isClosed = !monthClosings.isEmpty();
+            
+            // 마감 시간 설정 (마감된 경우만)
+            LocalDateTime closedAt = null;
+            if (isClosed && !monthClosings.isEmpty()) {
+                // 가장 최근의 마감 시간 사용
+                closedAt = monthClosings.stream()
+                        .map(MonthlyInventoryClosing::getClosedAt)
+                        .filter(time -> time != null)
+                        .max(LocalDateTime::compareTo)
+                        .orElse(null);
+            }
+            
+            // 결과 맵에 정보 추가
+            monthStatus.put("isClosed", isClosed);
+            monthStatus.put("closedAt", closedAt);
+            
+            // 마감된 경우 추가 정보
+            if (isClosed && !monthClosings.isEmpty()) {
+                // 마감 처리자 정보 (첫 번째 항목 기준)
+                User closedBy = monthClosings.get(0).getClosedBy();
+                if (closedBy != null) {
+                    monthStatus.put("closedBy", closedBy.getUserId());
+                    monthStatus.put("closedByName", closedBy.getUserName());
+                }
+            }
+            
+            resultList.add(monthStatus);
+        }
+        
+        long endTime = System.currentTimeMillis();
+        log.info("연간 월마감 상태 조회 완료: {}년, {}개 결과, 소요시간: {}ms", 
+                year, resultList.size(), (endTime - startTime));
+        
+        return resultList;
     }
 } 

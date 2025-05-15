@@ -15,6 +15,8 @@ public class UserCreateDTO {
     private String phoneNumber; // 전화번호
     private String email;       // 이메일
     private Long companyId;     // 회사 ID
+    private String branchGroupId;   // 담당 지부 그룹 코드
+    private String departmentTypeId; // 담당 부서 코드
 
     public User toEntity() {
         User user = new User();

@@ -1,11 +1,11 @@
 package com.inspection.facility.controller;
 
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Comparator;
-import java.util.Collections;
-import java.util.HashMap;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -13,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,22 +22,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.inspection.config.ApplicationContextProvider;
 import com.inspection.entity.Code;
 import com.inspection.entity.Company;
 import com.inspection.facility.dto.CurrentInventoryStatusDTO;
 import com.inspection.facility.dto.InventoryStatusDTO;
-import com.inspection.facility.service.InventoryClosingService;
 import com.inspection.facility.service.BatchInventoryClosingService;
-import com.inspection.repository.CompanyRepository;
+import com.inspection.facility.service.InventoryClosingService;
 import com.inspection.repository.CodeRepository;
+import com.inspection.repository.CompanyRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.context.ApplicationContext;
-
-import com.inspection.config.ApplicationContextProvider;
 
 @Slf4j
 @RestController
@@ -44,7 +41,7 @@ import com.inspection.config.ApplicationContextProvider;
 @RequiredArgsConstructor
 public class InventoryClosingController {
     
-    private final InventoryClosingService closingService;
+    private final InventoryClosingService inventoryClosingService;
     private final BatchInventoryClosingService batchClosingService;
     private final CompanyRepository companyRepository;
     private final CodeRepository codeRepository;
@@ -64,7 +61,7 @@ public class InventoryClosingController {
         // 현재 로그인한 사용자 ID 가져오기
         String userId = getCurrentUserId();
         
-        int processedCount = closingService.processDailyClosing(closingDate, userId);
+        int processedCount = inventoryClosingService.processDailyClosing(closingDate, userId);
         
         Map<String, Object> response = Map.of(
                 "success", true,
@@ -191,7 +188,7 @@ public class InventoryClosingController {
         // 현재 로그인한 사용자 ID 가져오기
         String userId = getCurrentUserId();
         
-        int processedCount = closingService.processMonthlyClosing(year, month, userId);
+        int processedCount = inventoryClosingService.processMonthlyClosing(year, month, userId);
         
         Map<String, Object> response = Map.of(
                 "success", true,
@@ -207,22 +204,31 @@ public class InventoryClosingController {
      * @param date 조회 날짜
      * @param companyId 회사 ID (선택적)
      * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
+     * @param pageable 페이징 정보
      * @return 일별 재고 현황 목록
-     * /api/v1/inventory/daily-status?date=2025-05-01&companyId=1&facilityTypeCodeId=TIRE
+     * /api/v1/inventory/daily-status?date=2025-05-01&page=0&size=20&sort=companyName,asc
+     * /api/v1/inventory/daily-status?date=2025-05-01&companyId=1
      */
     @GetMapping("/daily-status")
-    public ResponseEntity<List<InventoryStatusDTO>> getDailyInventoryStatus(
+    public ResponseEntity<Page<InventoryStatusDTO>> getDailyInventoryStatus(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) Long companyId,
-            @RequestParam(required = false) String facilityTypeCodeId) {
+            @RequestParam(required = false) String facilityTypeCodeId,
+            Pageable pageable) {
         
-        log.info("일별 재고 현황 조회 요청: {}, 회사ID: {}, 시설물유형: {}", 
-                date, companyId, facilityTypeCodeId);
+        log.info("일별 재고 현황 조회 요청(페이징): {}, 회사ID: {}, 시설물유형: {}, 페이지: {}", 
+                date, companyId, facilityTypeCodeId, pageable);
         
-        List<InventoryStatusDTO> statusList = closingService.getDailyInventoryStatus(
-                date, companyId, facilityTypeCodeId);
+        long startTime = System.currentTimeMillis();
         
-        return ResponseEntity.ok(statusList);
+        Page<InventoryStatusDTO> statusPage = inventoryClosingService.getDailyInventoryStatus(
+                date, companyId, facilityTypeCodeId, pageable);
+        
+        long endTime = System.currentTimeMillis();
+        log.info("일별 재고 현황 API 응답: 총 {}개 중 {}개 결과, 소요시간: {}ms", 
+                statusPage.getTotalElements(), statusPage.getNumberOfElements(), (endTime - startTime));
+        
+        return ResponseEntity.ok(statusPage);
     }
     
     /**
@@ -231,23 +237,32 @@ public class InventoryClosingController {
      * @param month 조회 월
      * @param companyId 회사 ID (선택적)
      * @param facilityTypeCodeId 시설물 유형 코드 ID (선택적)
+     * @param pageable 페이징 정보
      * @return 월별 재고 현황 목록
-     * /api/v1/inventory/monthly-status?year=2025&month=5&companyId=1&facilityTypeCodeId=TIRE
+     * /api/v1/inventory/monthly-status?year=2025&month=5&page=0&size=20&sort=closingQuantity,desc
+     * /api/v1/inventory/monthly-status?year=2025&month=5&companyId=1
      */
     @GetMapping("/monthly-status")
-    public ResponseEntity<List<InventoryStatusDTO>> getMonthlyInventoryStatus(
+    public ResponseEntity<Page<InventoryStatusDTO>> getMonthlyInventoryStatus(
             @RequestParam int year,
             @RequestParam int month,
             @RequestParam(required = false) Long companyId,
-            @RequestParam(required = false) String facilityTypeCodeId) {
+            @RequestParam(required = false) String facilityTypeCodeId,
+            Pageable pageable) {
         
-        log.info("월별 재고 현황 조회 요청: {}-{}, 회사ID: {}, 시설물유형: {}", 
-                year, month, companyId, facilityTypeCodeId);
+        log.info("월별 재고 현황 조회 요청(페이징): {}-{}, 회사ID: {}, 시설물유형: {}, 페이지: {}", 
+                year, month, companyId, facilityTypeCodeId, pageable);
         
-        List<InventoryStatusDTO> statusList = closingService.getMonthlyInventoryStatus(
-                year, month, companyId, facilityTypeCodeId);
+        long startTime = System.currentTimeMillis();
         
-        return ResponseEntity.ok(statusList);
+        Page<InventoryStatusDTO> statusPage = inventoryClosingService.getMonthlyInventoryStatus(
+                year, month, companyId, facilityTypeCodeId, pageable);
+        
+        long endTime = System.currentTimeMillis();
+        log.info("월별 재고 현황 API 응답: 총 {}개 중 {}개 결과, 소요시간: {}ms", 
+                statusPage.getTotalElements(), statusPage.getNumberOfElements(), (endTime - startTime));
+        
+        return ResponseEntity.ok(statusPage);
     }
     
     /**
@@ -262,10 +277,11 @@ public class InventoryClosingController {
             @RequestParam(required = false) Long companyId,
             @RequestParam(required = false) String facilityTypeCodeId) {
         
+        log.info("현재 재고 현황 조회 요청: 회사ID: {}, 시설물유형: {}", companyId, facilityTypeCodeId);
+        
         long startTime = System.currentTimeMillis();
         
-        // 캐시를 사용하는 최적화된 메서드 호출
-        List<CurrentInventoryStatusDTO> statusList = closingService.getCurrentInventoryStatusCached(
+        List<CurrentInventoryStatusDTO> statusList = inventoryClosingService.getCurrentInventoryStatus(
                 companyId, facilityTypeCodeId);
         
         long endTime = System.currentTimeMillis();
@@ -294,7 +310,7 @@ public class InventoryClosingController {
         log.info("재고 추이 조회 요청: {} ~ {}, 회사ID: {}, 시설물유형: {}", 
                 startDate, endDate, companyId, facilityTypeCodeId);
         
-        Map<LocalDate, List<InventoryStatusDTO>> trendData = closingService.getInventoryTrend(
+        Map<LocalDate, List<InventoryStatusDTO>> trendData = inventoryClosingService.getInventoryTrend(
                 startDate, endDate, companyId, facilityTypeCodeId);
         
         return ResponseEntity.ok(trendData);
@@ -315,7 +331,7 @@ public class InventoryClosingController {
         // 현재 로그인한 사용자 ID 가져오기
         String userId = getCurrentUserId();
         
-        int processedCount = closingService.recalculateDailyClosing(closingDate, userId);
+        int processedCount = inventoryClosingService.recalculateDailyClosing(closingDate, userId);
         
         Map<String, Object> response = Map.of(
                 "success", true,
@@ -347,7 +363,7 @@ public class InventoryClosingController {
         try {
             // 모든 데이터를 가져온 다음 메모리에서 페이지네이션 처리
             // 캐시를 사용하는 최적화된 메서드 호출
-            List<CurrentInventoryStatusDTO> allData = closingService.getCurrentInventoryStatusCached(companyId, facilityTypeCodeId);
+            List<CurrentInventoryStatusDTO> allData = inventoryClosingService.getCurrentInventoryStatusCached(companyId, facilityTypeCodeId);
             
             if (allData.isEmpty()) {
                 log.warn("페이지네이션 처리할 데이터가 없습니다.");
@@ -427,7 +443,7 @@ public class InventoryClosingController {
         long startTime = System.currentTimeMillis();
         
         // DB 단에서 페이징 처리하는 최적화된 메서드 호출
-        Page<CurrentInventoryStatusDTO> page = closingService.getCurrentInventoryStatusDbPaged(
+        Page<CurrentInventoryStatusDTO> page = inventoryClosingService.getCurrentInventoryStatusDbPaged(
                 companyId, facilityTypeCodeId, pageable);
         
         long endTime = System.currentTimeMillis();
@@ -435,6 +451,58 @@ public class InventoryClosingController {
                 page.getTotalElements(), page.getNumberOfElements(), (endTime - startTime));
         
         return ResponseEntity.ok(page);
+    }
+    
+    /**
+     * 월별 일일 마감 상태 조회 API
+     * 특정 연월의 모든 일자(1일부터 말일까지)에 대한 마감 상태를 조회합니다.
+     * @param year 조회할 연도
+     * @param month 조회할 월
+     * @param companyId 회사 ID (선택적)
+     * @return 해당 월의 모든 일자별 마감 상태 목록
+     * /api/v1/inventory/daily-closing-status-by-month?year=2025&month=5&companyId=1
+     */
+    @GetMapping("/daily-closing-status-by-month")
+    public ResponseEntity<Map<String, Object>> getDailyClosingStatusByMonth(
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) Long companyId) {
+        
+        log.info("월별 일일 마감 상태 조회 요청: {}년 {}월, 회사ID: {}", year, month, companyId);
+        
+        List<Map<String, Object>> statusList = inventoryClosingService.getDailyClosingStatusByMonth(year, month, companyId);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("count", statusList.size());
+        response.put("data", statusList);
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * 연간 월마감 상태 조회 API
+     * 특정 연도의 모든 월(1월부터 12월까지)에 대한 마감 상태를 조회합니다.
+     * @param year 조회할 연도
+     * @param companyId 회사 ID (선택적)
+     * @return 해당 연도의 모든 월별 마감 상태 목록
+     * /api/v1/inventory/monthly-closing-status-by-year?year=2025&companyId=1
+     */
+    @GetMapping("/monthly-closing-status-by-year")
+    public ResponseEntity<Map<String, Object>> getMonthlyClosingStatusByYear(
+            @RequestParam int year,
+            @RequestParam(required = false) Long companyId) {
+        
+        log.info("연간 월마감 상태 조회 요청: {}년, 회사ID: {}", year, companyId);
+        
+        List<Map<String, Object>> statusList = inventoryClosingService.getMonthlyClosingStatusByYear(year, companyId);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("count", statusList.size());
+        response.put("data", statusList);
+        
+        return ResponseEntity.ok(response);
     }
     
     /**

@@ -36,6 +36,9 @@ public class ServiceRequestDTO {
     private String statusName;            // 시설물 상태명
     private String currentLocation;       // 현재 위치(주소)
     
+    // 원래 위치 회사 정보 (AS 접수 시점)
+    private Long originalLocationCompanyId;    // 원래 위치 회사 ID
+    
     // 지부 그룹 정보 추가
     private String branchGroupId;         // 지부 그룹 ID
     private String branchGroupName;       // 지부 그룹명
@@ -61,8 +64,8 @@ public class ServiceRequestDTO {
     private Double cost;                      // 수리 비용
     private String notes;                     // 비고
     private String repairComment;             // 수리 코멘트 (수리 내용, 문제 원인 등)
-    private String departmentTypeCode;        // 담당 부서 유형 코드 (003001_0001: 메인장비팀, 003001_0002: 전기팀, 003001_0003: 시설팀)
-    private String departmentTypeName;        // 담당 부서 유형명 (메인장비팀, 전기팀, 시설팀)
+    private String departmentTypeCode;        // 담당 부서 유형 코드
+    private String departmentTypeName;        // 담당 부서 유형명
     private List<ServiceHistoryDTO> serviceHistories; // AS 이력
     private List<ServiceRequestImageDTO> images; // AS 이미지
     private LocalDateTime createdAt;          // 등록일
@@ -87,6 +90,9 @@ public class ServiceRequestDTO {
                 .statusCode(entity.getFacility().getStatus() != null ? entity.getFacility().getStatus().getCodeId() : null)
                 .statusName(entity.getFacility().getStatus() != null ? entity.getFacility().getStatus().getCodeName() : null)
                 .currentLocation(entity.getFacility().getLocationCompany() != null ? entity.getFacility().getLocationCompany().getAddress() : null)
+                
+                // 원래 위치 회사 정보
+                .originalLocationCompanyId(entity.getOriginalLocationCompanyId())
                 
                 // 지부 그룹 정보 설정
                 .branchGroupId(getBranchGroupId(entity.getFacility()))
@@ -113,8 +119,8 @@ public class ServiceRequestDTO {
                 .cost(entity.getCost())
                 .notes(entity.getNotes())
                 .repairComment(entity.getRepairComment())
-                .departmentTypeCode(entity.getDepartmentType())
-                .departmentTypeName(getDepartmentTypeName(entity.getDepartmentType()))
+                .departmentTypeCode(entity.getDepartmentType() != null ? entity.getDepartmentType().getCodeId() : null)
+                .departmentTypeName(entity.getDepartmentType() != null ? entity.getDepartmentType().getCodeName() : null)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
@@ -154,26 +160,6 @@ public class ServiceRequestDTO {
         }
         
         return null;
-    }
-    
-    /**
-     * 부서 유형 코드에 따른 부서명 반환
-     */
-    private static String getDepartmentTypeName(String departmentTypeCode) {
-        if (departmentTypeCode == null) {
-            return null;
-        }
-        
-        switch (departmentTypeCode) {
-            case "003001_0001":
-                return "메인장비팀";
-            case "003001_0002":
-                return "전기팀";
-            case "003001_0003":
-                return "시설팀";
-            default:
-                return "알 수 없음";
-        }
     }
     
     /**

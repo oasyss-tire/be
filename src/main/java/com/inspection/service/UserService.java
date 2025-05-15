@@ -19,6 +19,7 @@ import com.inspection.dto.UserResponseDTO;
 import com.inspection.dto.UserUpdateDTO;
 import com.inspection.entity.Company;
 import com.inspection.entity.User;
+import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.util.EncryptionUtil;
@@ -32,6 +33,7 @@ public class UserService implements UserDetailsService {
     
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
+    private final CodeRepository codeRepository;
     private final PasswordEncoder passwordEncoder;
     private final EncryptionUtil aesEncryption;
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
@@ -82,6 +84,20 @@ public class UserService implements UserDetailsService {
             Company company = companyRepository.findById(userCreateDTO.getCompanyId())
                 .orElseThrow(() -> new RuntimeException("회사 정보를 찾을 수 없습니다. ID: " + userCreateDTO.getCompanyId()));
             user.setCompany(company);
+        }
+        
+        // 지부 그룹 설정
+        if (userCreateDTO.getBranchGroupId() != null) {
+            com.inspection.entity.Code branchGroup = codeRepository.findById(userCreateDTO.getBranchGroupId())
+                .orElseThrow(() -> new RuntimeException("지부 그룹 정보를 찾을 수 없습니다. ID: " + userCreateDTO.getBranchGroupId()));
+            user.setBranchGroup(branchGroup);
+        }
+        
+        // 담당 부서 설정
+        if (userCreateDTO.getDepartmentTypeId() != null) {
+            com.inspection.entity.Code departmentType = codeRepository.findById(userCreateDTO.getDepartmentTypeId())
+                .orElseThrow(() -> new RuntimeException("담당 부서 정보를 찾을 수 없습니다. ID: " + userCreateDTO.getDepartmentTypeId()));
+            user.setDepartmentType(departmentType);
         }
 
         return userRepository.save(user);
@@ -172,6 +188,24 @@ public class UserService implements UserDetailsService {
             user.setCompany(company);
         } else {
             user.setCompany(null); // Company 연결 해제
+        }
+        
+        // 지부 그룹 설정
+        if (userUpdateDTO.getBranchGroupId() != null) {
+            com.inspection.entity.Code branchGroup = codeRepository.findById(userUpdateDTO.getBranchGroupId())
+                .orElseThrow(() -> new RuntimeException("지부 그룹 정보를 찾을 수 없습니다. ID: " + userUpdateDTO.getBranchGroupId()));
+            user.setBranchGroup(branchGroup);
+        } else {
+            user.setBranchGroup(null); // 지부 그룹 연결 해제
+        }
+        
+        // 담당 부서 설정
+        if (userUpdateDTO.getDepartmentTypeId() != null) {
+            com.inspection.entity.Code departmentType = codeRepository.findById(userUpdateDTO.getDepartmentTypeId())
+                .orElseThrow(() -> new RuntimeException("담당 부서 정보를 찾을 수 없습니다. ID: " + userUpdateDTO.getDepartmentTypeId()));
+            user.setDepartmentType(departmentType);
+        } else {
+            user.setDepartmentType(null); // 담당 부서 연결 해제
         }
         
         return userRepository.save(user);

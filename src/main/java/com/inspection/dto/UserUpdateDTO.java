@@ -13,4 +13,6 @@ public class UserUpdateDTO {
     private Role role;         // 권한
     private boolean active;     // 활성화 여부
     private Long companyId;     // 회사 ID
+    private String branchGroupId;   // 담당 지부 그룹 코드
+    private String departmentTypeId; // 담당 부서 코드
 } 

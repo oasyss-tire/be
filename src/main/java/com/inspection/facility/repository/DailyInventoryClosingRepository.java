@@ -192,4 +192,25 @@ public interface DailyInventoryClosingRepository extends JpaRepository<DailyInve
             @Param("companyId") Long companyId, 
             @Param("facilityTypeCodeId") String facilityTypeCodeId,
             Pageable pageable);
+
+    /**
+     * 특정 기간의 마감 상태가 true인 마감 데이터만 조회
+     * @param startDate 시작 날짜
+     * @param endDate 종료 날짜
+     * @param isClosed 마감 여부
+     * @return 마감 데이터 목록
+     */
+    List<DailyInventoryClosing> findByClosingDateBetweenAndIsClosed(
+            LocalDate startDate, LocalDate endDate, boolean isClosed);
+    
+    /**
+     * 특정 회사, 특정 기간의 마감 상태가 true인 마감 데이터만 조회
+     * @param companyId 회사 ID
+     * @param startDate 시작 날짜
+     * @param endDate 종료 날짜
+     * @param isClosed 마감 여부
+     * @return 마감 데이터 목록
+     */
+    List<DailyInventoryClosing> findByCompanyIdAndClosingDateBetweenAndIsClosed(
+            Long companyId, LocalDate startDate, LocalDate endDate, boolean isClosed);
 } 

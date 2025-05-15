@@ -32,6 +32,8 @@ public interface MonthlyInventoryClosingRepository extends JpaRepository<Monthly
     
     // 특정 회사, 특정 연도의 마감 데이터 조회
     List<MonthlyInventoryClosing> findByCompanyIdAndYear(Long companyId, Integer year);
+
+    List<MonthlyInventoryClosing> findByYearAndCompanyId(Integer year, Long companyId);
     
     // 월별 집계 쿼리 (특정 시설물 유형의 전체 수량 집계)
     @Query("SELECT sum(m.closingQuantity) FROM MonthlyInventoryClosing m " +

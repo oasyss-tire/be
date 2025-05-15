@@ -55,4 +55,8 @@ public class InventoryStatusDTO {
     
     // 마감 처리자
     private Long closedBy;
+    
+    // 마감 처리자 정보 (추가)
+    private String userId;     // 로그인 아이디
+    private String userName;   // 사용자 이름
 } 
