@@ -62,13 +62,17 @@ public class FacilityTransactionService {
     public static final String TRANSACTION_TYPE_RETURN = "002011_0005";      // 반납
     public static final String TRANSACTION_TYPE_SERVICE = "002011_0006";     // AS
     public static final String TRANSACTION_TYPE_DISPOSE = "002011_0007";     // 폐기
+    public static final String TRANSACTION_TYPE_LOST = "002011_0008";        // 분실
+    public static final String TRANSACTION_TYPE_MISC = "002011_0009";        // 기타
     
     // 시설물 상태 코드 상수 추가
     public static final String STATUS_NORMAL = "002003_0001";        // 사용중
     public static final String STATUS_IN_SERVICE = "002003_0002";    // 수리중
     public static final String STATUS_DISCARDED = "002003_0003";     // 폐기
     public static final String STATUS_RENTAL = "002003_0004";        // 임대중
-    public static final String STATUS_INBOUND_CANCELLED = "002003_9999"; // 입고취소
+    public static final String STATUS_LOST = "002003_0008";          // 분실
+    public static final String STATUS_MISC = "002003_0009";          // 기타
+    public static final String STATUS_INBOUND_CANCELLED = "002003_0007"; // 입고취소
 
     /**
      * 모든 트랜잭션 조회
@@ -955,5 +959,129 @@ public class FacilityTransactionService {
                 batchId, transactions.size(), reason, userId);
         
         return transactions.size();
+    }
+
+    /**
+     * 분실 트랜잭션 처리 (시설물 상태를 분실로 변경)
+     */
+    @Transactional
+    public FacilityTransactionDTO processLost(com.inspection.facility.dto.LostTransactionRequest request) {
+        // 시설물 조회
+        Facility facility = facilityRepository.findById(request.getFacilityId())
+                .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + request.getFacilityId()));
+        
+        // 이미 분실 상태인지 확인
+        if ((facility.getStatus() != null && facility.getStatus().getCodeId().equals(STATUS_LOST)) || 
+            !facility.isActive()) {
+            throw new IllegalStateException("이미 분실 처리된 시설물입니다: " + facility.getSerialNumber());
+        }
+        
+        // 현재 사용자 정보 가져오기
+        String userId = null;
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated() && 
+            !"anonymousUser".equals(authentication.getPrincipal())) {
+            userId = authentication.getName();
+        } else {
+            throw new IllegalStateException("인증된 사용자만 분실 처리할 수 있습니다.");
+        }
+        
+        // 기본 요청 객체 생성
+        FacilityTransactionRequest transactionRequest = new FacilityTransactionRequest();
+        transactionRequest.setFacilityId(request.getFacilityId());
+        transactionRequest.setTransactionTypeCode(TRANSACTION_TYPE_LOST);
+        transactionRequest.setTransactionDate(LocalDateTime.now());
+        
+        // 현재 위치 회사 설정
+        if (request.getLocationCompanyId() != null) {
+            transactionRequest.setFromCompanyId(request.getLocationCompanyId());
+        } else if (facility.getLocationCompany() != null) {
+            transactionRequest.setFromCompanyId(facility.getLocationCompany().getId());
+        }
+        
+        transactionRequest.setNotes(request.getNotes());
+        transactionRequest.setStatusAfterCode(STATUS_LOST); // 분실 시에는 분실 상태로 변경
+        transactionRequest.setTransactionRef(request.getTransactionRef());
+        transactionRequest.setBatchId(request.getBatchId());
+        
+        // 시설물 비활성화 처리
+        facility.setActive(false);
+        facility.setDiscardReason("분실: " + request.getNotes());
+        facility.setDiscardedAt(LocalDateTime.now()); // 항상 현재 시간으로 폐기 시간 설정
+        facility.setDiscardedBy(userId);
+        
+        // 트랜잭션 생성
+        FacilityTransactionDTO result = createTransaction(transactionRequest);
+        
+        // 변경된 시설물 저장
+        facilityRepository.save(facility);
+        
+        log.info("시설물 분실 처리 완료: ID={}, 시리얼번호={}, 사용자={}", 
+                 facility.getFacilityId(), facility.getSerialNumber(), userId);
+        
+        return result;
+    }
+    
+    /**
+     * 기타 트랜잭션 처리 (재고 조정 등의 이유로 시설물 상태 변경)
+     */
+    @Transactional
+    public FacilityTransactionDTO processMisc(com.inspection.facility.dto.MiscTransactionRequest request) {
+        // 시설물 조회
+        Facility facility = facilityRepository.findById(request.getFacilityId())
+                .orElseThrow(() -> new EntityNotFoundException("시설물을 찾을 수 없습니다: " + request.getFacilityId()));
+        
+        // 이미 비활성화된 시설물인지 확인
+        if (!facility.isActive()) {
+            throw new IllegalStateException("이미 비활성화된 시설물입니다: " + facility.getSerialNumber());
+        }
+        
+        // 현재 사용자 정보 가져오기
+        String userId = null;
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated() && 
+            !"anonymousUser".equals(authentication.getPrincipal())) {
+            userId = authentication.getName();
+        } else {
+            throw new IllegalStateException("인증된 사용자만 기타 처리할 수 있습니다.");
+        }
+        
+        // 상세 메모 생성 (사유 + 비고)
+        String detailedNotes = "사유: " + request.getReason() + (request.getNotes() != null ? "\n비고: " + request.getNotes() : "");
+        
+        // 기본 요청 객체 생성
+        FacilityTransactionRequest transactionRequest = new FacilityTransactionRequest();
+        transactionRequest.setFacilityId(request.getFacilityId());
+        transactionRequest.setTransactionTypeCode(TRANSACTION_TYPE_MISC);
+        transactionRequest.setTransactionDate(request.getTransactionDate() != null ? request.getTransactionDate() : LocalDateTime.now());
+        
+        // 현재 위치 회사 설정
+        if (request.getLocationCompanyId() != null) {
+            transactionRequest.setFromCompanyId(request.getLocationCompanyId());
+        } else if (facility.getLocationCompany() != null) {
+            transactionRequest.setFromCompanyId(facility.getLocationCompany().getId());
+        }
+        
+        transactionRequest.setNotes(detailedNotes);
+        transactionRequest.setStatusAfterCode(STATUS_MISC); // 기타 상태로 변경
+        transactionRequest.setTransactionRef(request.getTransactionRef());
+        transactionRequest.setBatchId(request.getBatchId());
+        
+        // 시설물 비활성화 처리
+        facility.setActive(false);
+        facility.setDiscardReason("기타: " + request.getReason());
+        facility.setDiscardedAt(request.getTransactionDate() != null ? request.getTransactionDate() : LocalDateTime.now());
+        facility.setDiscardedBy(userId);
+        
+        // 트랜잭션 생성
+        FacilityTransactionDTO result = createTransaction(transactionRequest);
+        
+        // 변경된 시설물 저장
+        facilityRepository.save(facility);
+        
+        log.info("시설물 기타 처리 완료: ID={}, 시리얼번호={}, 사유={}, 사용자={}", 
+                 facility.getFacilityId(), facility.getSerialNumber(), request.getReason(), userId);
+        
+        return result;
     }
 } 

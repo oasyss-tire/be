@@ -27,10 +27,14 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.inspection.facility.dto.CancellationRequest;
 import com.inspection.facility.dto.DisposeTransactionRequest;
 import com.inspection.facility.dto.FacilityTransactionDTO;
 import com.inspection.facility.dto.InboundTransactionRequest;
+import com.inspection.facility.dto.LostTransactionRequest;
+import com.inspection.facility.dto.MiscTransactionRequest;
 import com.inspection.facility.dto.MoveTransactionRequest;
 import com.inspection.facility.dto.OutboundTransactionRequest;
 import com.inspection.facility.dto.RentalTransactionRequest;
@@ -267,6 +271,141 @@ public class FacilityTransactionController {
         } catch (Exception e) {
             log.error("폐기 트랜잭션 요청 처리 중 오류: {}", e.getMessage(), e);
             throw new RuntimeException("폐기 트랜잭션 처리 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * 분실 트랜잭션 처리
+     * POST /api/facility-transactions/lost
+        {
+        "facilityId": 1,
+        "locationCompanyId": 1,
+        "lostDate": "2025-05-20T10:00:00",
+        "notes": "현장 확인 중 분실 발견"
+        }
+     */
+    @PostMapping("/lost")
+    public ResponseEntity<FacilityTransactionDTO> processLost(@Valid @RequestBody LostTransactionRequest request) {
+        FacilityTransactionDTO result = transactionService.processLost(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(result);
+    }
+    
+    /**
+     * 기타 트랜잭션 처리 (재고 조정 등)
+     * http://localhost:8080/api/facility-transactions/misc
+     * {
+        "facilityId": 8,
+        "locationCompanyId": 1,
+        "reason": "재고 확인 결과 불일치",
+        "notes": "시스템상 존재하지만 실제로 확인 불가능"
+        }
+     */
+    @PostMapping("/misc")
+    public ResponseEntity<FacilityTransactionDTO> processMisc(@Valid @RequestBody MiscTransactionRequest request) {
+        FacilityTransactionDTO result = transactionService.processMisc(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(result);
+    }
+    
+    /**
+     * 분실 트랜잭션 처리 (이미지 첨부 지원)
+     * /api/facility-transactions/lost-with-images
+     * {
+        "facilityId": 2,
+        "lostDate": "2025-05-16T14:40:00",
+        "locationCompanyId": 1,
+        "notes": "현장 점검 중 분실된 것으로 확인됨"
+        }
+     */
+    @PostMapping(value = "/lost-with-images")
+    public ResponseEntity<FacilityTransactionDTO> processLostWithImages(
+            @RequestParam("request") String requestJson,
+            @RequestParam(value = "images", required = false) MultipartFile[] images) {
+        
+        try {
+            // JSON을 LostTransactionRequest 객체로 변환 (Java 8 시간 모듈 추가)
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule());
+            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            LostTransactionRequest request = objectMapper.readValue(requestJson, LostTransactionRequest.class);
+            
+            log.info("이미지 첨부 분실 트랜잭션 요청: 시설물 ID={}", request.getFacilityId());
+            
+            // 분실 트랜잭션 처리
+            FacilityTransactionDTO result = transactionService.processLost(request);
+            
+            // 이미지가 제공된 경우 업로드 처리
+            if (images != null && images.length > 0) {
+                for (MultipartFile image : images) {
+                    if (!image.isEmpty()) {
+                        try {
+                            transactionImageService.uploadTransactionImage(
+                                    result.getTransactionId(), 
+                                    image, 
+                                    "002005_0010", // 기본 이미지 타입
+                                    getCurrentUserId());
+                        } catch (Exception e) {
+                            log.error("분실 트랜잭션 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
+                        }
+                    }
+                }
+            }
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(result);
+        } catch (Exception e) {
+            log.error("분실 트랜잭션 요청 처리 중 오류: {}", e.getMessage(), e);
+            throw new RuntimeException("분실 트랜잭션 처리 중 오류가 발생했습니다.", e);
+        }
+    }
+    
+    /**
+     * 기타 트랜잭션 처리 (이미지 첨부 지원)
+     * 
+     *  {
+        "facilityId": 8,
+        "locationCompanyId": 1,
+        "reason": "재고 확인 결과 불일치",
+        "notes": "시스템상 존재하지만 실제로 확인 불가능"
+        }
+     */
+    @PostMapping(value = "/misc-with-images")
+    public ResponseEntity<FacilityTransactionDTO> processMiscWithImages(
+            @RequestParam("request") String requestJson,
+            @RequestParam(value = "images", required = false) MultipartFile[] images) {
+        
+        try {
+            // JSON을 MiscTransactionRequest 객체로 변환
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule());
+            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            MiscTransactionRequest request = objectMapper.readValue(requestJson, MiscTransactionRequest.class);
+            
+            log.info("이미지 첨부 기타 트랜잭션 요청: 시설물 ID={}, 사유={}", 
+                request.getFacilityId(), request.getReason());
+            
+            // 기타 트랜잭션 처리
+            FacilityTransactionDTO result = transactionService.processMisc(request);
+            
+            // 이미지가 제공된 경우 업로드 처리
+            if (images != null && images.length > 0) {
+                for (MultipartFile image : images) {
+                    if (!image.isEmpty()) {
+                        try {
+                            transactionImageService.uploadTransactionImage(
+                                    result.getTransactionId(), 
+                                    image, 
+                                    "002005_0011", // 기본 이미지 타입
+                                    getCurrentUserId());
+                        } catch (Exception e) {
+                            log.error("기타 트랜잭션 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
+                        }
+                    }
+                }
+            }
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(result);
+        } catch (Exception e) {
+            log.error("기타 트랜잭션 요청 처리 중 오류: {}", e.getMessage(), e);
+            throw new RuntimeException("기타 트랜잭션 처리 중 오류가 발생했습니다.", e);
         }
     }
     

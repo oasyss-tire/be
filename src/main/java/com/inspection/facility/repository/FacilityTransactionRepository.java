@@ -127,7 +127,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
     /**
      * 특정 기간, 회사, 시설물 유형에 대한 출고 트랜잭션 수량 조회
      * 마감 시간 기준으로 조회합니다.
-     * 출고(002011_0002), 폐기(002011_0007), 이동(002011_0003)(출발지로서) 트랜잭션을 포함
+     * 출고(002011_0002), 폐기(002011_0007), 분실(002011_0008), 기타(002011_0009), 이동(002011_0003)(출발지로서) 트랜잭션을 포함
      * 취소된 트랜잭션은 제외합니다.
      * 
      * @param lastClosingTime 마지막 마감 처리 시간
@@ -146,6 +146,8 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "AND ft.is_cancelled = false " +
            "AND (ft.transaction_type_code = '002011_0002' OR " + // 출고
            "    ft.transaction_type_code = '002011_0007' OR " + // 폐기
+           "    ft.transaction_type_code = '002011_0008' OR " + // 분실
+           "    ft.transaction_type_code = '002011_0009' OR " + // 기타
            "    (ft.transaction_type_code = '002011_0003' AND ft.to_company_id != :companyId))", 
            nativeQuery = true)
     int countOutboundTransactionsBetweenClosingTimes(
@@ -203,7 +205,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
     /**
      * 특정 기간, 회사, 시설물 유형에 대한 활성(폐기되지 않은) 출고 트랜잭션 수량 조회
      * 마감 시간 기준으로 조회합니다.
-     * 출고(002011_0002), 폐기(002011_0007), 이동(002011_0003)(출발지로서) 트랜잭션을 포함
+     * 출고(002011_0002), 폐기(002011_0007), 분실(002011_0008), 기타(002011_0009), 이동(002011_0003)(출발지로서) 트랜잭션을 포함
      * 취소된 트랜잭션과 비활성 시설물(폐기된 시설물)은 제외합니다.
      * 
      * @param lastClosingTime 마지막 마감 처리 시간
@@ -221,6 +223,8 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "AND ft.facility.isActive = true " + // 폐기 상태 코드 대신 isActive 필드 사용
            "AND (ft.transactionType.codeId = '002011_0002' OR " + // 출고
            "    ft.transactionType.codeId = '002011_0007' OR " + // 폐기
+           "    ft.transactionType.codeId = '002011_0008' OR " + // 분실
+           "    ft.transactionType.codeId = '002011_0009' OR " + // 기타
            "    (ft.transactionType.codeId = '002011_0003' AND ft.toCompany.id != :companyId))")
     int countActiveOutboundTransactionsBetweenClosingTimes(
             @Param("lastClosingTime") LocalDateTime lastClosingTime,
@@ -229,16 +233,16 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
             @Param("facilityTypeCodeId") String facilityTypeCodeId);
     
     /**
-     * 특정 기간, 회사, 시설물 유형에 대한 폐기 트랜잭션 수량 조회
+     * 특정 기간, 회사, 시설물 유형에 대한 폐기/분실/기타 트랜잭션 수량 조회
      * 마감 시간 기준으로 조회합니다.
-     * 폐기(002011_0007) 트랜잭션만 포함 (isActive 상관없이)
+     * 폐기(002011_0007), 분실(002011_0008), 기타(002011_0009) 트랜잭션만 포함 (isActive 상관없이)
      * 취소된 트랜잭션은 제외합니다.
      * 
      * @param lastClosingTime 마지막 마감 처리 시간
      * @param currentProcessingTime 현재 마감 처리 시작 시간
      * @param companyId 회사 ID
      * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @return 폐기 수량
+     * @return 폐기/분실/기타 수량
      */
     @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
            "WHERE ft.transactionDate > :lastClosingTime " +
@@ -246,7 +250,9 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "AND ft.fromCompany.id = :companyId " +
            "AND ft.facility.facilityType.codeId = :facilityTypeCodeId " +
            "AND ft.isCancelled = false " +
-           "AND ft.transactionType.codeId = '002011_0007'")
+           "AND (ft.transactionType.codeId = '002011_0007' OR " +
+           "    ft.transactionType.codeId = '002011_0008' OR " +
+           "    ft.transactionType.codeId = '002011_0009')")
     int countDisposeTransactionsBetweenClosingTimes(
             @Param("lastClosingTime") LocalDateTime lastClosingTime,
             @Param("currentProcessingTime") LocalDateTime currentProcessingTime,
@@ -254,16 +260,16 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
             @Param("facilityTypeCodeId") String facilityTypeCodeId);
     
     /**
-     * 마감 이후 폐기 트랜잭션이 발생한 시설물 수 조회
+     * 마감 이후 폐기/분실/기타 트랜잭션이 발생한 시설물 수 조회
      * 마감 시간 기준으로 조회합니다.
-     * 폐기(002011_0007) 트랜잭션만 포함
+     * 폐기(002011_0007), 분실(002011_0008), 기타(002011_0009) 트랜잭션만 포함
      * 취소된 트랜잭션은 제외합니다.
      * 
      * @param lastClosingTime 마지막 마감 처리 시간
      * @param currentProcessingTime 현재 처리 시작 시간
      * @param companyId 회사 ID
      * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @return 폐기 시설물 수
+     * @return 폐기/분실/기타 시설물 수
      */
     @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
            "WHERE ft.transactionDate > :lastClosingTime " +
@@ -271,7 +277,9 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "AND ft.fromCompany.id = :companyId " +
            "AND ft.facility.facilityType.codeId = :facilityTypeCodeId " +
            "AND ft.isCancelled = false " +
-           "AND ft.transactionType.codeId = '002011_0007'")
+           "AND (ft.transactionType.codeId = '002011_0007' OR " +
+           "    ft.transactionType.codeId = '002011_0008' OR " +
+           "    ft.transactionType.codeId = '002011_0009')")
     int countNewlyDisposedFacilitiesBetweenClosingTimes(
             @Param("lastClosingTime") LocalDateTime lastClosingTime,
             @Param("currentProcessingTime") LocalDateTime currentProcessingTime,
@@ -325,6 +333,8 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "    AND ft.is_cancelled = false " +
            "    AND (ft.transaction_type_code = '002011_0002' OR " +
            "        ft.transaction_type_code = '002011_0007' OR " +
+           "        ft.transaction_type_code = '002011_0008' OR " +
+           "        ft.transaction_type_code = '002011_0009' OR " +
            "        (ft.transaction_type_code = '002011_0003' AND ft.from_company_id != ft.to_company_id)) " +
            "  GROUP BY from_company_id, f.facility_type_code " +
            ") t " +
