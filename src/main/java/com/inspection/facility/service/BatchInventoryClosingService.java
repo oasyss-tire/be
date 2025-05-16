@@ -4,9 +4,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -291,13 +293,15 @@ public class BatchInventoryClosingService {
             User user = userRepository.findByUserId(userId)
                     .orElseThrow(() -> new RuntimeException("마감 처리자 정보를 찾을 수 없습니다: " + userId));
             
+            // 이전 마감 데이터를 미리 조회 (회사별 시설물별 최근 마감 데이터)
+            Map<String, DailyInventoryClosing> previousClosingMap = new HashMap<>();
+            
             // 전일 마감 데이터를 한 번에 조회 (최적화된 쿼리 사용)
             LocalDate previousDay = closingDate.minusDays(1);
             List<DailyInventoryClosing> previousClosings = dailyClosingRepository
                     .findByClosingDateAndCompanyIdInAndIsClosed(previousDay, companyIds, true);
             
             // 전일 마감 데이터 맵 생성 (회사ID_시설물유형ID 형식의 키 사용)
-            Map<String, DailyInventoryClosing> previousClosingMap = new HashMap<>();
             for (DailyInventoryClosing closing : previousClosings) {
                 String key = closing.getCompany().getId() + "_" + closing.getFacilityType().getCodeId();
                 previousClosingMap.put(key, closing);
@@ -305,6 +309,106 @@ public class BatchInventoryClosingService {
             
             // 일괄 저장을 위한 리스트
             List<DailyInventoryClosing> closingsToSave = new ArrayList<>();
+            
+            // 총 처리할 조합 수 계산 - 배치 사이즈 최적화에 사용
+            int totalCombinations = companies.size() * facilityTypes.size();
+            
+            // 배치 크기 최적화: 총 조합 수에 따라 동적으로 배치 크기 결정
+            int batchSize;
+            if (totalCombinations > 5000) {
+                batchSize = 500; // 대량 데이터
+            } else if (totalCombinations > 1000) {
+                batchSize = 300; // 중간 규모 데이터
+            } else {
+                batchSize = 150; // 소규모 데이터
+            }
+            
+            log.debug("동적 배치 크기 설정: {}건 (총 예상 조합: {}건)", batchSize, totalCombinations);
+            
+            // 시설물 유형 코드 목록 추출
+            List<String> facilityTypeCodes = facilityTypes.stream().map(Code::getCodeId).collect(Collectors.toList());
+            
+            // 성능 최적화: 모든 회사-시설물 유형 조합의 마감 시간 맵 미리 구성
+            Map<String, LocalDateTime> lastClosingTimeMap = new HashMap<>();
+            Map<String, Integer> previousQuantityMap = new HashMap<>();
+            
+            // 기본 마감 시간 (매우 오래된 시간)
+            LocalDateTime defaultLastClosingTime = LocalDateTime.of(2000, 1, 1, 0, 0);
+            
+            // 1. 전일 마감 데이터의 시간과 수량 설정
+            for (DailyInventoryClosing closing : previousClosings) {
+                String key = closing.getCompany().getId() + "_" + closing.getFacilityType().getCodeId();
+                previousQuantityMap.put(key, closing.getClosingQuantity());
+                
+                LocalDateTime closingTime = closing.getClosedAt() != null ? 
+                        closing.getClosedAt() : closing.getCreatedAt();
+                lastClosingTimeMap.put(key, closingTime);
+            }
+            
+            // 2. 이전 마감 데이터가 없는 조합에 대해 예전 마감 데이터 조회 및 캐싱
+            Set<String> keysToProcess = new HashSet<>();
+            for (Company company : companies) {
+                for (Code facilityType : facilityTypes) {
+                    String key = company.getId() + "_" + facilityType.getCodeId();
+                    if (!lastClosingTimeMap.containsKey(key)) {
+                        keysToProcess.add(key);
+                    }
+                }
+            }
+            
+            // 예전 마감 데이터 일괄 조회를 위한 최적화 쿼리 실행
+            if (!keysToProcess.isEmpty()) {
+                for (String key : keysToProcess) {
+                    String[] parts = key.split("_");
+                    Long companyId = Long.parseLong(parts[0]);
+                    String facilityTypeCodeId = parts[1];
+                    
+                    // 더 이전 날짜의 마감 데이터 조회
+                    Optional<DailyInventoryClosing> olderClosingOpt = dailyClosingRepository
+                            .findTopByCompanyIdAndFacilityTypeCodeIdAndClosingDateBeforeAndIsClosedTrueOrderByClosingDateDesc(
+                                    companyId, facilityTypeCodeId, closingDate);
+                    
+                    if (olderClosingOpt.isPresent()) {
+                        DailyInventoryClosing olderClosing = olderClosingOpt.get();
+                        previousQuantityMap.put(key, olderClosing.getClosingQuantity());
+                        
+                        LocalDateTime closingTime = olderClosing.getClosedAt() != null ? 
+                                olderClosing.getClosedAt() : olderClosing.getCreatedAt();
+                        lastClosingTimeMap.put(key, closingTime);
+                    } else {
+                        // 마감 데이터가 없는 경우 기본값 설정
+                        previousQuantityMap.put(key, 0);
+                        lastClosingTimeMap.put(key, defaultLastClosingTime);
+                    }
+                }
+            }
+            
+            // 최적화를 위해 트랜잭션 통계를 회사/시설물 유형별 마감 시간을 고려하여 일괄 조회
+            Map<String, int[]> transactionStatsMap = new HashMap<>();
+            
+            // 각 회사와 시설물 유형 조합에 대한 트랜잭션 조회를 최적화
+            for (Company company : companies) {
+                Long companyId = company.getId();
+                
+                for (Code facilityType : facilityTypes) {
+                    String facilityTypeCodeId = facilityType.getCodeId();
+                    String key = companyId + "_" + facilityTypeCodeId;
+                    
+                    // 해당 조합의 마감 시간 조회 (캐싱된 맵에서)
+                    LocalDateTime lastClosingTime = lastClosingTimeMap.getOrDefault(key, defaultLastClosingTime);
+                    
+                    // 입고 수량 계산
+                    int inboundQuantity = transactionRepository.countInboundTransactionsBetweenClosingTimes(
+                            lastClosingTime, currentProcessingTime, companyId, facilityTypeCodeId);
+                    
+                    // 출고 수량 계산
+                    int outboundQuantity = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
+                            lastClosingTime, currentProcessingTime, companyId, facilityTypeCodeId);
+                    
+                    // 결과 캐싱
+                    transactionStatsMap.put(key, new int[] { inboundQuantity, outboundQuantity });
+                }
+            }
             
             // 각 회사와 시설물 유형 조합에 대한 마감 데이터 생성
             for (Company company : companies) {
@@ -333,38 +437,18 @@ public class BatchInventoryClosingService {
                         closingData = dailyClosingRepository.save(closingData);
                     }
                     
-                    // 이전 마감 데이터 조회
-                    int previousDayQuantity = 0;
-                    LocalDateTime lastClosingTime = LocalDateTime.of(2000, 1, 1, 0, 0);
+                    // 캐싱된 이전 수량 사용
+                    int previousDayQuantity = previousQuantityMap.getOrDefault(key, 0);
                     
-                    // 캐싱된 이전 마감 데이터 사용
-                    DailyInventoryClosing previousClosing = previousClosingMap.get(key);
+                    // 캐싱된 트랜잭션 통계 데이터 사용
+                    int inboundQuantity = 0;
+                    int outboundQuantity = 0;
                     
-                    if (previousClosing != null) {
-                        previousDayQuantity = previousClosing.getClosingQuantity();
-                        lastClosingTime = previousClosing.getClosedAt() != null ? 
-                                previousClosing.getClosedAt() : previousClosing.getCreatedAt();
-                    } else {
-                        // 더 이전 날짜의 마감 데이터 조회 (최적화된 단일 쿼리)
-                        Optional<DailyInventoryClosing> olderClosingOpt = dailyClosingRepository
-                                .findTopByCompanyIdAndFacilityTypeCodeIdAndClosingDateBeforeAndIsClosedTrueOrderByClosingDateDesc(
-                                        companyId, facilityTypeCodeId, closingDate);
-                        
-                        if (olderClosingOpt.isPresent()) {
-                            DailyInventoryClosing olderClosing = olderClosingOpt.get();
-                            previousDayQuantity = olderClosing.getClosingQuantity();
-                            lastClosingTime = olderClosing.getClosedAt() != null ? 
-                                    olderClosing.getClosedAt() : olderClosing.getCreatedAt();
-                        }
+                    if (transactionStatsMap.containsKey(key)) {
+                        int[] stats = transactionStatsMap.get(key);
+                        inboundQuantity = stats[0];
+                        outboundQuantity = stats[1];
                     }
-                    
-                    // 입고 수량 계산
-                    int inboundQuantity = transactionRepository.countInboundTransactionsBetweenClosingTimes(
-                            lastClosingTime, currentProcessingTime, companyId, facilityTypeCodeId);
-                    
-                    // 출고 수량 계산
-                    int outboundQuantity = transactionRepository.countOutboundTransactionsBetweenClosingTimes(
-                            lastClosingTime, currentProcessingTime, companyId, facilityTypeCodeId);
                     
                     // 당일 마감 수량 계산
                     int closingQuantity = previousDayQuantity + inboundQuantity - outboundQuantity;
@@ -382,7 +466,7 @@ public class BatchInventoryClosingService {
                     processedCount++;
                     
                     // 배치 크기에 도달하면 일괄 저장 후 리스트 비우기
-                    if (closingsToSave.size() >= 100) {
+                    if (closingsToSave.size() >= batchSize) {
                         dailyClosingRepository.saveAll(closingsToSave);
                         closingsToSave.clear();
                     }
@@ -424,11 +508,33 @@ public class BatchInventoryClosingService {
         
         // 회사를 그룹으로 나누기 (최적화된 그룹 크기)
         int availableProcessors = Runtime.getRuntime().availableProcessors();
-        int optimalGroupCount = Math.min(availableProcessors * 2, 20); // 최대 20개 그룹으로 제한
-        int groupSize = Math.max(1, companies.size() / optimalGroupCount);
         
+        // CPU 코어 수와 회사 수를 고려하여 최적의 그룹 수 계산
+        int totalCompanies = companies.size();
+        int idealCompaniesPerGroup; // 그룹당 최적의 회사 수
+        int optimalGroupCount;
+        
+        // CPU 부하와 효율성을 고려한 최적 그룹화 전략
+        if (totalCompanies <= availableProcessors) {
+            // 회사 수가 코어 수보다 적으면 회사당 하나의 스레드 할당
+            idealCompaniesPerGroup = 1;
+            optimalGroupCount = totalCompanies;
+        } else if (totalCompanies <= availableProcessors * 4) {
+            // 회사 수가 코어 수의 4배 이내면 코어당 최대 4개 회사 처리
+            optimalGroupCount = availableProcessors;
+            idealCompaniesPerGroup = (int) Math.ceil((double) totalCompanies / optimalGroupCount);
+        } else {
+            // 회사 수가 많을 경우 작업 처리량과 오버헤드 균형을 고려
+            // 코어당 약 2-4개 스레드가 일반적으로 효율적
+            optimalGroupCount = Math.min(availableProcessors * 3, totalCompanies / 4);
+            idealCompaniesPerGroup = (int) Math.ceil((double) totalCompanies / optimalGroupCount);
+        }
+        
+        // 최종 그룹 크기 설정 (너무 크거나 작지 않도록)
+        int groupSize = Math.max(1, Math.min(idealCompaniesPerGroup, 10));
+        
+        // 회사 목록을 그룹으로 나누기
         List<List<Company>> companyGroups = new ArrayList<>();
-        
         for (int i = 0; i < companies.size(); i += groupSize) {
             int end = Math.min(companies.size(), i + groupSize);
             companyGroups.add(companies.subList(i, end));

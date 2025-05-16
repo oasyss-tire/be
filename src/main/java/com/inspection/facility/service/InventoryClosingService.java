@@ -36,6 +36,7 @@ import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.repository.UserRepository;
 import com.inspection.facility.service.FacilityTransactionService;
+import com.inspection.facility.service.BatchInventoryClosingService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +52,7 @@ public class InventoryClosingService {
     private final CompanyRepository companyRepository;
     private final CodeRepository codeRepository;
     private final UserRepository userRepository;
+    private final BatchInventoryClosingService batchClosingService;
 
     // 캐시 맵 (회사ID_시설물유형ID -> 최근 마감 데이터)
     private final Map<String, DailyInventoryClosing> latestClosingCache = new HashMap<>();
@@ -267,6 +269,7 @@ public class InventoryClosingService {
     @Transactional
     public int processMonthlyClosing(int year, int month, String userId) {
         log.info("월간 마감 처리 시작: {}-{}", year, month);
+        long startTime = System.currentTimeMillis();
         
         // 사용자 조회
         User user = userRepository.findByUserId(userId)
@@ -301,13 +304,29 @@ public class InventoryClosingService {
         
         // 5. 일마감 데이터가 있는 경우의 처리
         if (!dailyClosings.isEmpty()) {
-            // 5.1 회사 및 시설물 유형별로 일별 마감 데이터 그룹화
+            // 5.1 회사 및 시설물 유형별로 일별 마감 데이터 그룹화 (성능 최적화)
             Map<String, List<DailyInventoryClosing>> groupedClosings = dailyClosings.stream()
                     .filter(DailyInventoryClosing::getIsClosed) // 마감된 항목만 포함
                     .collect(Collectors.groupingBy(closing -> 
                             closing.getCompany().getId() + "_" + closing.getFacilityType().getCodeId()));
             
+            log.info("월마감 처리를 위한 일마감 데이터 그룹화 완료: {}개 조합", groupedClosings.size());
+            
+            // 배치 크기 최적화: 데이터 크기에 따라 동적으로 배치 크기 설정
+            int totalCombinations = groupedClosings.size();
+            int batchSize;
+            if (totalCombinations > 500) {
+                batchSize = 100; // 대량 데이터
+            } else if (totalCombinations > 100) {
+                batchSize = 50;  // 중간 규모 데이터
+            } else {
+                batchSize = 20;  // 소규모 데이터
+            }
+            
+            log.debug("동적 배치 크기 설정: {}건", batchSize);
+            
             // 5.2 각 그룹별로 월간 마감 데이터 생성
+            int currentBatchCount = 0;
             for (Map.Entry<String, List<DailyInventoryClosing>> entry : groupedClosings.entrySet()) {
                 List<DailyInventoryClosing> groupClosings = entry.getValue();
                 if (groupClosings.isEmpty()) continue;
@@ -322,6 +341,15 @@ public class InventoryClosingService {
                 
                 closingsToSave.add(closingData);
                 processedCount++;
+                currentBatchCount++;
+                
+                // 배치 크기에 도달하면 일괄 저장 후 리스트 비우기
+                if (currentBatchCount >= batchSize) {
+                    monthlyClosingRepository.saveAll(closingsToSave);
+                    log.debug("월마감 일괄 저장 진행 중: {}개 완료", processedCount);
+                    closingsToSave.clear();
+                    currentBatchCount = 0;
+                }
             }
         }
         
@@ -330,19 +358,22 @@ public class InventoryClosingService {
         int previousMonth = month == 1 ? 12 : month - 1;
         int previousYear = month == 1 ? year - 1 : year;
         
+        // 6.1 전월 마감 데이터를 효율적으로 일괄 조회
+        long prevMonthStartTime = System.currentTimeMillis();
         List<MonthlyInventoryClosing> previousMonthClosings = monthlyClosingRepository.findByYearAndMonth(
                 previousYear, previousMonth);
+        log.debug("전월 마감 데이터 조회: {}개 ({}ms)", 
+                previousMonthClosings.size(), (System.currentTimeMillis() - prevMonthStartTime));
+        
+        // 이미 처리된 회사-시설물 유형 조합을 효율적으로 확인하기 위한 세트 생성
+        Set<String> processedKeys = closingsToSave.stream()
+                .map(closing -> closing.getCompany().getId() + "_" + closing.getFacilityType().getCodeId())
+                .collect(Collectors.toSet());
         
         for (MonthlyInventoryClosing prevClosing : previousMonthClosings) {
-            // 이미 처리된 회사-시설물 유형 조합인지 확인
+            // 이미 처리된 회사-시설물 유형 조합인지 확인 (최적화된 조회)
             String key = prevClosing.getCompany().getId() + "_" + prevClosing.getFacilityType().getCodeId();
-            boolean alreadyProcessed = closingsToSave.stream()
-                    .anyMatch(closing -> 
-                            closing.getCompany().getId().equals(prevClosing.getCompany().getId()) &&
-                            closing.getFacilityType().getCodeId().equals(prevClosing.getFacilityType().getCodeId()));
-            
-            // 아직 처리되지 않은 조합이면 0 입출고로 마감 데이터 생성
-            if (!alreadyProcessed) {
+            if (!processedKeys.contains(key)) {
                 MonthlyInventoryClosing newClosing = new MonthlyInventoryClosing();
                 newClosing.setYear(year);
                 newClosing.setMonth(month);
@@ -359,18 +390,21 @@ public class InventoryClosingService {
                 closingsToSave.add(newClosing);
                 processedCount++;
                 
-                log.info("트랜잭션 없는 월마감 생성: {}-{}, 회사: {}, 시설물유형: {}, 이월수량: {}",
+                log.debug("트랜잭션 없는 월마감 생성: {}-{}, 회사: {}, 시설물유형: {}, 이월수량: {}",
                         year, month, prevClosing.getCompany().getId(), 
                         prevClosing.getFacilityType().getCodeId(), prevClosing.getClosingQuantity());
             }
         }
         
-        // 7. 데이터 저장
+        // 7. 남은 데이터 일괄 저장
         if (!closingsToSave.isEmpty()) {
             monthlyClosingRepository.saveAll(closingsToSave);
+            log.debug("남은 월마감 데이터 일괄 저장: {}개", closingsToSave.size());
         }
         
-        log.info("월간 마감 처리 완료: {}-{}, 처리된 레코드 수: {}", year, month, processedCount);
+        long endTime = System.currentTimeMillis();
+        log.info("월간 마감 처리 완료: {}-{}, 처리된 레코드 수: {}, 소요시간: {}ms", 
+                year, month, processedCount, (endTime - startTime));
         return processedCount;
     }
     
@@ -1001,6 +1035,7 @@ public class InventoryClosingService {
     @Transactional
     public int recalculateDailyClosing(LocalDate closingDate, String userId) {
         log.info("일일 마감 재계산 시작: {}", closingDate);
+        long startTime = System.currentTimeMillis();
         
         // 1. 해당 일자의 마감 데이터 조회
         List<DailyInventoryClosing> existingClosings = dailyClosingRepository.findByClosingDate(closingDate);
@@ -1028,13 +1063,38 @@ public class InventoryClosingService {
             throw new RuntimeException("월마감이 완료된 기간의 일마감은 재계산할 수 없습니다.");
         }
         
-        // 4. 기존 마감 데이터 삭제
-        dailyClosingRepository.deleteAll(existingClosings);
+        // 4. 기존 마감 데이터 삭제 - 배치 처리로 최적화
+        int batchSize = 500; // 대량 삭제에 최적화된 배치 크기
+        List<List<DailyInventoryClosing>> batches = new ArrayList<>();
+        
+        for (int i = 0; i < existingClosings.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, existingClosings.size());
+            batches.add(existingClosings.subList(i, end));
+        }
+        
+        log.info("마감 데이터 삭제 배치 처리: 총 {}개 데이터, {}개 배치", existingClosings.size(), batches.size());
+        
+        for (List<DailyInventoryClosing> batch : batches) {
+            dailyClosingRepository.deleteAll(batch);
+        }
+        
         log.info("기존 마감 데이터 삭제 완료: {}", closingDate);
         
-        // 5. 마감 데이터 재계산 (기존 processDailyClosing 메서드 호출)
-        int processedCount = processDailyClosing(closingDate, userId);
-        log.info("일일 마감 재계산 완료: {}, 처리 건수: {}", closingDate, processedCount);
+        // 5. 회사 및 시설물 유형 조회
+        List<Company> companies = companyRepository.findAll();
+        List<Code> facilityTypes = codeRepository.findByCodeGroupGroupId("002001");
+        
+        int totalCombinations = companies.size() * facilityTypes.size();
+        log.info("마감 재계산 대상: 회사 {}개, 시설물 유형 {}개, 총 조합 {}개",
+                companies.size(), facilityTypes.size(), totalCombinations);
+        
+        // 6. 최적화된 그룹 병렬 처리를 사용하여 마감 데이터 재계산
+        int processedCount = batchClosingService.processGroupedBatchClosing(
+                companies, facilityTypes, closingDate, userId);
+        
+        long endTime = System.currentTimeMillis();
+        log.info("일일 마감 재계산 완료: {}, 처리 건수: {}, 소요시간: {}ms",
+                closingDate, processedCount, (endTime - startTime));
         
         return processedCount;
     }

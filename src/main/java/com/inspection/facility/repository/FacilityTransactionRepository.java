@@ -277,4 +277,62 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
             @Param("currentProcessingTime") LocalDateTime currentProcessingTime,
             @Param("companyId") Long companyId,
             @Param("facilityTypeCodeId") String facilityTypeCodeId);
+    
+    /**
+     * 특정 기간, 회사, 시설물 유형에 대한 트랜잭션 통계를 한 번에 조회
+     * 마감 시간 기준으로 조회합니다.
+     * 입고, 출고 수량을 한 번의 쿼리로 계산합니다.
+     * 
+     * @param companies 회사 ID 목록
+     * @param facilityTypes 시설물 유형 코드 ID 목록
+     * @param lastClosingTime 마지막 마감 처리 시간
+     * @param currentProcessingTime 현재 마감 처리 시작 시간
+     * @return [회사ID, 시설물유형코드ID, 입고수량, 출고수량] 형태의 결과 목록
+     */
+    @Query(value = "SELECT " +
+           "t.company_id as company_id, " +
+           "t.facility_type_code as facility_type_code, " +
+           "SUM(CASE WHEN t.direction = 'IN' THEN t.count ELSE 0 END) as inbound_count, " +
+           "SUM(CASE WHEN t.direction = 'OUT' THEN t.count ELSE 0 END) as outbound_count " +
+           "FROM ( " +
+           "  SELECT /*+ INDEX(ft idx_ft_to_company) INDEX(f idx_facility_type) */ " +
+           "    to_company_id as company_id, " +
+           "    f.facility_type_code, " +
+           "    COUNT(DISTINCT ft.facility_id) as count, " +
+           "    'IN' as direction " +
+           "  FROM facility_transactions ft " +
+           "  JOIN facilities f ON ft.facility_id = f.facility_id " +
+           "  WHERE ft.transaction_date > :lastClosingTime " +
+           "    AND ft.transaction_date <= :currentProcessingTime " +
+           "    AND ft.to_company_id IN :companyIds " +
+           "    AND f.facility_type_code IN :facilityTypes " +
+           "    AND ft.is_cancelled = false " +
+           "    AND (ft.transaction_type_code = '002011_0001' OR " +
+           "        (ft.transaction_type_code = '002011_0003' AND ft.from_company_id != ft.to_company_id)) " +
+           "  GROUP BY to_company_id, f.facility_type_code " +
+           "  UNION ALL " +
+           "  SELECT /*+ INDEX(ft idx_ft_from_company) INDEX(f idx_facility_type) */ " +
+           "    from_company_id as company_id, " +
+           "    f.facility_type_code, " +
+           "    COUNT(DISTINCT ft.facility_id) as count, " +
+           "    'OUT' as direction " +
+           "  FROM facility_transactions ft " +
+           "  JOIN facilities f ON ft.facility_id = f.facility_id " +
+           "  WHERE ft.transaction_date > :lastClosingTime " +
+           "    AND ft.transaction_date <= :currentProcessingTime " +
+           "    AND ft.from_company_id IN :companyIds " +
+           "    AND f.facility_type_code IN :facilityTypes " +
+           "    AND ft.is_cancelled = false " +
+           "    AND (ft.transaction_type_code = '002011_0002' OR " +
+           "        ft.transaction_type_code = '002011_0007' OR " +
+           "        (ft.transaction_type_code = '002011_0003' AND ft.from_company_id != ft.to_company_id)) " +
+           "  GROUP BY from_company_id, f.facility_type_code " +
+           ") t " +
+           "GROUP BY t.company_id, t.facility_type_code", 
+           nativeQuery = true)
+    List<Object[]> getBulkTransactionStatistics(
+            @Param("companyIds") List<Long> companyIds,
+            @Param("facilityTypes") List<String> facilityTypes,
+            @Param("lastClosingTime") LocalDateTime lastClosingTime,
+            @Param("currentProcessingTime") LocalDateTime currentProcessingTime);
 } 

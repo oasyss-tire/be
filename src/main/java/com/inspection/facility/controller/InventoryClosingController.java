@@ -184,17 +184,52 @@ public class InventoryClosingController {
             @RequestParam int year, @RequestParam int month) {
         
         log.info("월간 마감 처리 요청: {}-{}", year, month);
+        long startTime = System.currentTimeMillis();
         
         // 현재 로그인한 사용자 ID 가져오기
         String userId = getCurrentUserId();
         
         int processedCount = inventoryClosingService.processMonthlyClosing(year, month, userId);
         
-        Map<String, Object> response = Map.of(
-                "success", true,
-                "message", String.format("%d년 %d월 마감 처리가 완료되었습니다.", year, month),
-                "processedCount", processedCount
-        );
+        long endTime = System.currentTimeMillis();
+        long executionTime = endTime - startTime;
+        
+        // 스레드 풀 상태 정보 가져오기 (ThreadPoolTaskExecutor에서 정보 추출)
+        Map<String, Object> threadPoolInfo = new HashMap<>();
+        try {
+            ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) 
+                    ApplicationContextProvider.getApplicationContext().getBean("inventoryTaskExecutor");
+            
+            threadPoolInfo.put("activeThreads", executor.getActiveCount());
+            threadPoolInfo.put("poolSize", executor.getPoolSize());
+            threadPoolInfo.put("corePoolSize", executor.getCorePoolSize());
+            threadPoolInfo.put("maxPoolSize", executor.getMaxPoolSize());
+            threadPoolInfo.put("queueSize", executor.getThreadPoolExecutor().getQueue().size());
+            threadPoolInfo.put("queueCapacity", executor.getThreadPoolExecutor().getQueue().remainingCapacity());
+            threadPoolInfo.put("completedTaskCount", executor.getThreadPoolExecutor().getCompletedTaskCount());
+        } catch (Exception e) {
+            log.warn("스레드 풀 정보 조회 중 오류: {}", e.getMessage());
+            threadPoolInfo.put("error", "스레드 풀 정보를 조회할 수 없습니다.");
+        }
+        
+        // 성능 정보
+        Map<String, Object> performanceInfo = new HashMap<>();
+        performanceInfo.put("executionTimeMs", executionTime);
+        performanceInfo.put("averageTimePerRecord", 
+                processedCount > 0 ? (double) executionTime / processedCount : 0);
+        performanceInfo.put("recordsPerSecond", 
+                executionTime > 0 ? (double) processedCount * 1000 / executionTime : 0);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", String.format("%d년 %d월 마감 처리가 완료되었습니다.", year, month));
+        response.put("processedCount", processedCount);
+        response.put("performance", performanceInfo);
+        response.put("threadPool", threadPoolInfo);
+        
+        log.info("월간 마감 처리 완료: {}년 {}월, 처리된 레코드 {}, 소요시간: {}ms (평균 {}ms/레코드)", 
+                year, month, processedCount, executionTime, 
+                processedCount > 0 ? (double) executionTime / processedCount : 0);
         
         return ResponseEntity.ok(response);
     }
@@ -327,17 +362,52 @@ public class InventoryClosingController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate closingDate) {
         
         log.info("일일 마감 재계산 요청: {}", closingDate);
+        long startTime = System.currentTimeMillis();
         
         // 현재 로그인한 사용자 ID 가져오기
         String userId = getCurrentUserId();
         
         int processedCount = inventoryClosingService.recalculateDailyClosing(closingDate, userId);
         
-        Map<String, Object> response = Map.of(
-                "success", true,
-                "message", String.format("%s 일자 마감 재계산이 완료되었습니다.", closingDate),
-                "processedCount", processedCount
-        );
+        long endTime = System.currentTimeMillis();
+        long executionTime = endTime - startTime;
+        
+        // 스레드 풀 상태 정보 가져오기 (ThreadPoolTaskExecutor에서 정보 추출)
+        Map<String, Object> threadPoolInfo = new HashMap<>();
+        try {
+            ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) 
+                    ApplicationContextProvider.getApplicationContext().getBean("inventoryTaskExecutor");
+            
+            threadPoolInfo.put("activeThreads", executor.getActiveCount());
+            threadPoolInfo.put("poolSize", executor.getPoolSize());
+            threadPoolInfo.put("corePoolSize", executor.getCorePoolSize());
+            threadPoolInfo.put("maxPoolSize", executor.getMaxPoolSize());
+            threadPoolInfo.put("queueSize", executor.getThreadPoolExecutor().getQueue().size());
+            threadPoolInfo.put("queueCapacity", executor.getThreadPoolExecutor().getQueue().remainingCapacity());
+            threadPoolInfo.put("completedTaskCount", executor.getThreadPoolExecutor().getCompletedTaskCount());
+        } catch (Exception e) {
+            log.warn("스레드 풀 정보 조회 중 오류: {}", e.getMessage());
+            threadPoolInfo.put("error", "스레드 풀 정보를 조회할 수 없습니다.");
+        }
+        
+        // 성능 정보
+        Map<String, Object> performanceInfo = new HashMap<>();
+        performanceInfo.put("executionTimeMs", executionTime);
+        performanceInfo.put("averageTimePerCombination", 
+                processedCount > 0 ? (double) executionTime / processedCount : 0);
+        performanceInfo.put("combinationsPerSecond", 
+                executionTime > 0 ? (double) processedCount * 1000 / executionTime : 0);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", String.format("%s 일자 마감 재계산이 완료되었습니다.", closingDate));
+        response.put("processedCount", processedCount);
+        response.put("performance", performanceInfo);
+        response.put("threadPool", threadPoolInfo);
+        
+        log.info("일일 마감 재계산 완료: 처리된 조합 {}, 소요시간: {}ms (평균 {}ms/조합)", 
+                processedCount, executionTime, 
+                processedCount > 0 ? (double) executionTime / processedCount : 0);
         
         return ResponseEntity.ok(response);
     }
