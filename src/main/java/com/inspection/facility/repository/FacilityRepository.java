@@ -132,11 +132,11 @@ public interface FacilityRepository extends JpaRepository<Facility, Long>, JpaSp
     int countByFacilityType_CodeIdAndCreatedAtBetween(String facilityTypeCode, LocalDateTime startDate, LocalDateTime endDate);
     
     // 시설물 유형별 카운트 조회
-    @Query("SELECT f.facilityType.codeId AS typeCode, COUNT(f) AS count FROM Facility f GROUP BY f.facilityType.codeId")
+    @Query("SELECT f.facilityType.codeId AS typeCode, COUNT(f) AS count FROM Facility f WHERE f.isActive = true GROUP BY f.facilityType.codeId")
     List<Object[]> countGroupByFacilityType();
     
     // 시설물 유형별 카운트를 Map으로 반환
-    @Query("SELECT f.facilityType.codeId as typeCode, COUNT(f) as count FROM Facility f GROUP BY f.facilityType.codeId")
+    @Query("SELECT f.facilityType.codeId as typeCode, COUNT(f) as count FROM Facility f WHERE f.isActive = true GROUP BY f.facilityType.codeId")
     default Map<String, Long> countByFacilityTypeCode() {
         Map<String, Long> result = new HashMap<>();
         List<Object[]> counts = countGroupByFacilityType();

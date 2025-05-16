@@ -68,6 +68,7 @@ public class FacilityTransactionService {
     public static final String STATUS_IN_SERVICE = "002003_0002";    // 수리중
     public static final String STATUS_DISCARDED = "002003_0003";     // 폐기
     public static final String STATUS_RENTAL = "002003_0004";        // 임대중
+    public static final String STATUS_INBOUND_CANCELLED = "002003_9999"; // 입고취소
 
     /**
      * 모든 트랜잭션 조회
@@ -521,7 +522,7 @@ public class FacilityTransactionService {
         facility.setLastValuationDate(LocalDateTime.now());
         
         // 새로 추가된 폐기 관련 필드 업데이트
-        facility.setActive(false); // 활성 상태 변경
+        facility.setActive(false);
         facility.setDiscardReason(request.getNotes()); // 폐기 사유
         facility.setDiscardedAt(LocalDateTime.now()); // 폐기 일시
         facility.setDiscardedBy(userId); // 폐기 처리자
@@ -866,8 +867,19 @@ public class FacilityTransactionService {
                 break;
                 
             case TRANSACTION_TYPE_INBOUND:
-                // 입고 취소: 처리 없음 (이전 위치가 없음)
+                // 입고 취소: 시설물 상태를 입고취소로 변경하고 비활성화
                 log.info("입고 트랜잭션 취소: 시설물 ID={}", facility.getFacilityId());
+                
+                // 입고취소 상태 코드 조회
+                Code inboundCancelledStatus = codeRepository.findById(STATUS_INBOUND_CANCELLED)
+                    .orElseThrow(() -> new EntityNotFoundException("입고취소 상태 코드를 찾을 수 없습니다: " + STATUS_INBOUND_CANCELLED));
+                
+                // 시설물 상태 변경 및 비활성화
+                facility.setActive(false);
+                facility.setStatus(inboundCancelledStatus);
+                facility.setDiscardReason("입고 트랜잭션 취소");
+                facility.setDiscardedAt(LocalDateTime.now());
+                facility.setDiscardedBy(userId);
                 break;
                 
             case TRANSACTION_TYPE_SERVICE:

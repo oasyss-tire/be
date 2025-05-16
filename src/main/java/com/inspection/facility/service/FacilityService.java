@@ -633,6 +633,13 @@ public class FacilityService {
                 predicates.add(criteriaBuilder.or(serialPredicate, managementPredicate));
             }
             
+            // 활성화 상태 검색
+            if (request.getIsActive() != null) {
+                predicates.add(criteriaBuilder.equal(
+                    root.get("isActive"), request.getIsActive()
+                ));
+            }
+            
             // 관리번호 검색
             if (StringUtils.hasText(request.getManagementNumber())) {
                 predicates.add(criteriaBuilder.like(
@@ -952,7 +959,7 @@ public class FacilityService {
                     transactionRequest.setFacilityId(savedFacility.getFacilityId());
                     transactionRequest.setToCompanyId(request.getLocationCompanyId());
                     transactionRequest.setStatusAfterCode(request.getStatusCode());
-                    transactionRequest.setNotes("시설물 배치 생성 - 최초 등록");
+                    transactionRequest.setNotes("시설물 생성 - 최초 등록");
                     transactionRequest.setBatchId(batchId); // 공통 배치 ID 설정
                     
                     facilityTransactionService.processInbound(transactionRequest);
@@ -1004,14 +1011,14 @@ public class FacilityService {
     }
 
     /**
-     * 시설물 유형별 총 수량 조회
+     * 시설물 유형별 총 수량 조회 (활성화된 시설물만 포함)
      * @return 시설물 유형 코드를 키로, 총 수량을 값으로 하는 맵
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getFacilityCountsByType() {
-        log.info("시설물 유형별 총 수량 조회");
+        log.info("시설물 유형별 총 수량 조회 (활성화된 시설물만)");
         
-        // 시설물 유형별 수량 조회
+        // 시설물 유형별 수량 조회 (활성화된 시설물만)
         Map<String, Long> countsMap = facilityRepository.countByFacilityTypeCode();
         
         // 결과 맵 생성

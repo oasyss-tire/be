@@ -146,7 +146,7 @@ public class FacilityController {
     }
     
     /**
-     * 시설물 유형별 총 수량 조회
+     * 시설물 유형별 총 수량 조회 (활성화된 시설물만 포함)
      */
     @GetMapping("/counts-by-type")
     public ResponseEntity<Map<String, Object>> getFacilityCountsByType() {

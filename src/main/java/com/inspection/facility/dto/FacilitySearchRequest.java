@@ -19,6 +19,7 @@ public class FacilitySearchRequest {
     private String installationTypeCode;   // 설치 유형 코드
     private String location;               // 위치 검색 (주소 기준)
     private Long companyId;                // 회사 ID (위치 회사 기준으로만 검색)
+    private Boolean isActive;              // 활성 상태 여부
     
     @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime installationStartDate;  // 설치일 시작
