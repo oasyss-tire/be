@@ -114,7 +114,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @return 입고 수량
      */
     @Query(value = "SELECT /*+ INDEX(ft idx_ft_to_company) INDEX(f idx_facility_type) INDEX(ft idx_ft_transaction_date) */ " +
-           "COUNT(DISTINCT ft.facility_id) FROM facility_transactions ft " +
+           "COUNT(ft.transaction_id) FROM facility_transactions ft " +
            "JOIN facilities f ON ft.facility_id = f.facility_id " +
            "WHERE ft.transaction_date > :lastClosingTime " +
            "AND ft.transaction_date <= :currentProcessingTime " +
@@ -143,7 +143,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @return 출고 수량
      */
     @Query(value = "SELECT /*+ INDEX(ft idx_ft_from_company) INDEX(f idx_facility_type) INDEX(ft idx_ft_transaction_date) */ " +
-           "COUNT(DISTINCT ft.facility_id) FROM facility_transactions ft " +
+           "COUNT(ft.transaction_id) FROM facility_transactions ft " +
            "JOIN facilities f ON ft.facility_id = f.facility_id " +
            "WHERE ft.transaction_date > :lastClosingTime " +
            "AND ft.transaction_date <= :currentProcessingTime " +
@@ -193,7 +193,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @param facilityTypeCodeId 시설물 유형 코드 ID
      * @return 입고 수량
      */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
+    @Query("SELECT COUNT(ft.transactionId) FROM FacilityTransaction ft " +
            "WHERE ft.transactionDate > :lastClosingTime " +
            "AND ft.transactionDate <= :currentProcessingTime " +
            "AND ft.toCompany.id = :companyId " +
@@ -220,7 +220,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @param facilityTypeCodeId 시설물 유형 코드 ID
      * @return 출고 수량
      */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
+    @Query("SELECT COUNT(ft.transactionId) FROM FacilityTransaction ft " +
            "WHERE ft.transactionDate > :lastClosingTime " +
            "AND ft.transactionDate <= :currentProcessingTime " +
            "AND ft.fromCompany.id = :companyId " +
@@ -248,9 +248,8 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @param currentProcessingTime 현재 마감 처리 시작 시간
      * @param companyId 회사 ID
      * @param facilityTypeCodeId 시설물 유형 코드 ID
-     * @return 폐기/분실/기타 수량
      */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
+    @Query("SELECT COUNT(ft.transactionId) FROM FacilityTransaction ft " +
            "WHERE ft.transactionDate > :lastClosingTime " +
            "AND ft.transactionDate <= :currentProcessingTime " +
            "AND ft.fromCompany.id = :companyId " +
@@ -277,7 +276,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
      * @param facilityTypeCodeId 시설물 유형 코드 ID
      * @return 폐기/분실/기타 시설물 수
      */
-    @Query("SELECT COUNT(DISTINCT ft.facility.facilityId) FROM FacilityTransaction ft " +
+    @Query("SELECT COUNT(ft.transactionId) FROM FacilityTransaction ft " +
            "WHERE ft.transactionDate > :lastClosingTime " +
            "AND ft.transactionDate <= :currentProcessingTime " +
            "AND ft.fromCompany.id = :companyId " +
@@ -312,7 +311,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "  SELECT /*+ INDEX(ft idx_ft_to_company) INDEX(f idx_facility_type) */ " +
            "    to_company_id as company_id, " +
            "    f.facility_type_code, " +
-           "    COUNT(DISTINCT ft.facility_id) as count, " +
+           "    COUNT(ft.transaction_id) as count, " +
            "    'IN' as direction " +
            "  FROM facility_transactions ft " +
            "  JOIN facilities f ON ft.facility_id = f.facility_id " +
@@ -328,7 +327,7 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
            "  SELECT /*+ INDEX(ft idx_ft_from_company) INDEX(f idx_facility_type) */ " +
            "    from_company_id as company_id, " +
            "    f.facility_type_code, " +
-           "    COUNT(DISTINCT ft.facility_id) as count, " +
+           "    COUNT(ft.transaction_id) as count, " +
            "    'OUT' as direction " +
            "  FROM facility_transactions ft " +
            "  JOIN facilities f ON ft.facility_id = f.facility_id " +
