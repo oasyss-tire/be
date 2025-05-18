@@ -25,7 +25,9 @@ import com.inspection.entity.Code;
 import com.inspection.entity.Company;
 import com.inspection.entity.User;
 import com.inspection.facility.dto.FacilityTransactionDTO;
+import com.inspection.facility.dto.FacilityTransactionImageDTO;
 import com.inspection.facility.dto.FacilityTransactionRequest;
+import com.inspection.facility.dto.FacilityTransactionWithImagesDTO;
 import com.inspection.facility.dto.TransactionUpdateDTO;
 import com.inspection.facility.entity.Facility;
 import com.inspection.facility.entity.FacilityTransaction;
@@ -53,6 +55,7 @@ public class FacilityTransactionService {
     private final UserRepository userRepository;
     private final ServiceRequestRepository serviceRequestRepository;
     private final VoucherService voucherService;
+    private final FacilityTransactionImageService transactionImageService;
     
     // 트랜잭션 유형 코드 상수 추가
     public static final String TRANSACTION_TYPE_INBOUND = "002011_0001";     // 입고
@@ -78,8 +81,15 @@ public class FacilityTransactionService {
      * 모든 트랜잭션 조회
      */
     @Transactional(readOnly = true)
-    public List<FacilityTransactionDTO> getAllTransactions() {
-        List<FacilityTransaction> transactions = transactionRepository.findAllByOrderByTransactionDateDesc();
+    public List<FacilityTransactionDTO> getAllTransactions(String sort) {
+        List<FacilityTransaction> transactions;
+        
+        if ("asc".equalsIgnoreCase(sort)) {
+            transactions = transactionRepository.findAllByOrderByCreatedAtAsc();
+        } else {
+            transactions = transactionRepository.findAllByOrderByCreatedAtDesc();
+        }
+        
         return transactions.stream()
                 .map(FacilityTransactionDTO::fromEntity)
                 .collect(Collectors.toList());
@@ -90,9 +100,36 @@ public class FacilityTransactionService {
      */
     @Transactional(readOnly = true)
     public Page<FacilityTransactionDTO> getTransactionsWithPaging(Pageable pageable) {
-        Page<FacilityTransaction> transactionPage = transactionRepository.findAllByOrderByTransactionDateDesc(pageable);
+        Page<FacilityTransaction> transactionPage = transactionRepository.findAllByOrderByCreatedAtDesc(pageable);
         List<FacilityTransactionDTO> dtoList = transactionPage.getContent().stream()
                 .map(FacilityTransactionDTO::fromEntity)
+                .collect(Collectors.toList());
+        
+        return new PageImpl<>(dtoList, pageable, transactionPage.getTotalElements());
+    }
+    
+    /**
+     * 페이징된 트랜잭션 조회 (이미지 포함)
+     */
+    @Transactional(readOnly = true)
+    public Page<FacilityTransactionWithImagesDTO> getTransactionsWithImagesWithPaging(Pageable pageable) {
+        Page<FacilityTransaction> transactionPage = transactionRepository.findAllByOrderByCreatedAtDesc(pageable);
+        
+        List<FacilityTransactionWithImagesDTO> dtoList = transactionPage.getContent().stream()
+                .map(transaction -> {
+                    // 트랜잭션 DTO 변환
+                    FacilityTransactionDTO transactionDTO = FacilityTransactionDTO.fromEntity(transaction);
+                    
+                    // 해당 트랜잭션의 이미지 목록 조회
+                    List<FacilityTransactionImageDTO> images = 
+                            transactionImageService.getTransactionImages(transaction.getTransactionId());
+                    
+                    // 트랜잭션과 이미지를 합친 DTO 생성
+                    return FacilityTransactionWithImagesDTO.builder()
+                            .transaction(transactionDTO)
+                            .images(images)
+                            .build();
+                })
                 .collect(Collectors.toList());
         
         return new PageImpl<>(dtoList, pageable, transactionPage.getTotalElements());

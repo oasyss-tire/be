@@ -10,7 +10,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -22,7 +21,6 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -32,6 +30,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.inspection.facility.dto.CancellationRequest;
 import com.inspection.facility.dto.DisposeTransactionRequest;
 import com.inspection.facility.dto.FacilityTransactionDTO;
+import com.inspection.facility.dto.FacilityTransactionWithImagesDTO;
 import com.inspection.facility.dto.InboundTransactionRequest;
 import com.inspection.facility.dto.LostTransactionRequest;
 import com.inspection.facility.dto.MiscTransactionRequest;
@@ -42,8 +41,8 @@ import com.inspection.facility.dto.ReturnTransactionRequest;
 import com.inspection.facility.dto.ServiceTransactionRequest;
 import com.inspection.facility.dto.TransactionUpdateDTO;
 import com.inspection.facility.entity.FacilityTransaction;
-import com.inspection.facility.service.FacilityTransactionService;
 import com.inspection.facility.service.FacilityTransactionImageService;
+import com.inspection.facility.service.FacilityTransactionService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -62,8 +61,9 @@ public class FacilityTransactionController {
      * 트랜잭션 전체 목록 조회
      */
     @GetMapping
-    public ResponseEntity<List<FacilityTransactionDTO>> getAllTransactions() {
-        return ResponseEntity.ok(transactionService.getAllTransactions());
+    public ResponseEntity<List<FacilityTransactionDTO>> getAllTransactions(
+            @RequestParam(defaultValue = "desc") String sort) {
+        return ResponseEntity.ok(transactionService.getAllTransactions(sort));
     }
     
     /**
@@ -72,6 +72,14 @@ public class FacilityTransactionController {
     @GetMapping("/paging")
     public ResponseEntity<Page<FacilityTransactionDTO>> getTransactionsWithPaging(Pageable pageable) {
         return ResponseEntity.ok(transactionService.getTransactionsWithPaging(pageable));
+    }
+    
+    /**
+     * 페이징된 트랜잭션 목록 조회 (이미지 포함)
+     */
+    @GetMapping("/paging-with-images")
+    public ResponseEntity<Page<FacilityTransactionWithImagesDTO>> getTransactionsWithImagesWithPaging(Pageable pageable) {
+        return ResponseEntity.ok(transactionService.getTransactionsWithImagesWithPaging(pageable));
     }
     
     /**

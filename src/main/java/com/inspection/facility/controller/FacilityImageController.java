@@ -21,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.inspection.facility.dto.FacilityImageDTO;
 import com.inspection.facility.service.FacilityImageService;
+import com.inspection.facility.service.FacilityTransactionImageService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ import lombok.extern.slf4j.Slf4j;
 public class FacilityImageController {
 
     private final FacilityImageService facilityImageService;
+    private final FacilityTransactionImageService imageService;
     
     /**
      * 시설물 이미지 목록 조회
@@ -194,5 +196,32 @@ public class FacilityImageController {
         log.info("시설물 ID {}에 대한 QR 코드 생성 요청", facilityId);
         FacilityImageDTO qrCodeImage = facilityImageService.generateAndSaveQrCode(facilityId);
         return ResponseEntity.ok(qrCodeImage);
+    }
+
+    @GetMapping("/facility-transaction/{fileName:.+}")
+    public ResponseEntity<Resource> getTransactionImage(@PathVariable String fileName) {
+        log.info("이미지 파일 요청: {}", fileName);
+        Resource file = imageService.loadTransactionImageFile(fileName);
+        
+        // 파일 확장자에 따라 적절한 MediaType 설정
+        String contentType = determineContentType(fileName);
+        
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .body(file);
+    }
+    
+    private String determineContentType(String fileName) {
+        if (fileName.toLowerCase().endsWith(".jpg") || fileName.toLowerCase().endsWith(".jpeg")) {
+            return "image/jpeg";
+        } else if (fileName.toLowerCase().endsWith(".png")) {
+            return "image/png";
+        } else if (fileName.toLowerCase().endsWith(".gif")) {
+            return "image/gif";
+        } else if (fileName.toLowerCase().endsWith(".bmp")) {
+            return "image/bmp";
+        } else {
+            return "application/octet-stream";
+        }
     }
 } 

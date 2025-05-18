@@ -32,7 +32,10 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
     Optional<FacilityTransaction> findTopByFacilityFacilityIdOrderByTransactionDateDesc(Long facilityId);
     
     // 모든 트랜잭션을 최신순으로 조회
-    List<FacilityTransaction> findAllByOrderByTransactionDateDesc();
+    List<FacilityTransaction> findAllByOrderByCreatedAtDesc();
+    
+    // 모든 트랜잭션을 오래된순으로 조회
+    List<FacilityTransaction> findAllByOrderByCreatedAtAsc();
     
     // 배치 ID로 트랜잭션 조회 (최신순)
     List<FacilityTransaction> findByBatchIdOrderByTransactionDateDesc(String batchId);
@@ -56,8 +59,11 @@ public interface FacilityTransactionRepository extends JpaRepository<FacilityTra
     // 특정 회사 ID의 모든 트랜잭션 조회 (출발지 또는 도착지)
     List<FacilityTransaction> findByFromCompanyIdOrToCompanyIdOrderByTransactionDateDesc(Long companyId, Long sameCompanyId);
     
-    // 페이징 기능이 있는 트랜잭션 조회
+    // 페이징 기능이 있는 트랜잭션 조회 (transaction_date 기준)
     Page<FacilityTransaction> findAllByOrderByTransactionDateDesc(Pageable pageable);
+    
+    // 페이징 기능이 있는 트랜잭션 조회 (created_at 기준)
+    Page<FacilityTransaction> findAllByOrderByCreatedAtDesc(Pageable pageable);
     
     // 특정 기간 내의 트랜잭션 조회
     List<FacilityTransaction> findByTransactionDateBetweenOrderByTransactionDateDesc(LocalDateTime startDate, LocalDateTime endDate);
