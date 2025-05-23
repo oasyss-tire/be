@@ -12,6 +12,7 @@ import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.inspection.nice.dto.NiceSessionDto;
 
 /**
  * NICE 본인인증 전용 Redis 설정 클래스
@@ -56,14 +57,19 @@ public class NiceRedisConfig {
         // 키는 문자열 형태로 직렬화
         redisTemplate.setKeySerializer(new StringRedisSerializer());
         
-        // 값은 JSON 형태로 직렬화 (Java 8 날짜/시간 타입 지원)
-        Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
-        jackson2JsonRedisSerializer.setObjectMapper(objectMapper);
-        redisTemplate.setValueSerializer(jackson2JsonRedisSerializer);
+        // 값은 NiceSessionDto에 특화된 JSON 직렬화
+        Jackson2JsonRedisSerializer<NiceSessionDto> sessionSerializer = new Jackson2JsonRedisSerializer<>(NiceSessionDto.class);
+        sessionSerializer.setObjectMapper(objectMapper);
+        
+        // Object 타입용 기본 직렬화
+        Jackson2JsonRedisSerializer<Object> objectSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
+        objectSerializer.setObjectMapper(objectMapper);
+        
+        redisTemplate.setValueSerializer(objectSerializer);
         
         // Hash 작업을 위한 직렬화 설정
         redisTemplate.setHashKeySerializer(new StringRedisSerializer());
-        redisTemplate.setHashValueSerializer(jackson2JsonRedisSerializer);
+        redisTemplate.setHashValueSerializer(objectSerializer);
         
         return redisTemplate;
     }

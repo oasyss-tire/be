@@ -29,6 +29,9 @@ public class NiceCertificationResultDto {
     // 인증 요청자 성명
     private String name;
     
+    // UTF8로 URL 인코딩된 이름
+    private String utf8Name;
+    
     // 생년월일 (YYYYMMDD)
     private String birthDate;
     
@@ -58,4 +61,7 @@ public class NiceCertificationResultDto {
     
     // 사이트 코드
     private String siteCode;
+    
+    // 요청 시 전달받은 추가 데이터
+    private String receiveData;
 } 

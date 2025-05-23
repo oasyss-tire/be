@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.Random;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -48,8 +49,9 @@ public class NiceCertificationService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     
-    // 세션 만료 시간 (5분)
-    private static final long SESSION_EXPIRE_SECONDS = 300;
+    // 세션 만료 시간 (설정 파일에서 읽어옴, 기본값 15분)
+    @Value("${nice.session.expire-seconds:900}")
+    private long sessionExpireSeconds;
     
     /**
      * 암호화 토큰을 요청합니다.
@@ -226,7 +228,7 @@ public class NiceCertificationService {
                     .build();
             
             // Redis에 세션 저장 (만료 시간 설정)
-            redisUtil.setDataExpire(reqNo, sessionDto, SESSION_EXPIRE_SECONDS);
+            redisUtil.setDataExpire(reqNo, sessionDto, sessionExpireSeconds);
             
             // 10. 응답 DTO 구성
             NiceCertificationResponseDto responseDto = NiceCertificationResponseDto.builder()
@@ -335,6 +337,7 @@ public class NiceCertificationService {
                     .responseNo(resultNode.path("responseno").asText())
                     .authType(resultNode.path("authtype").asText())
                     .name(resultNode.path("name").asText())
+                    .utf8Name(resultNode.path("utf8_name").asText())
                     .birthDate(resultNode.path("birthdate").asText())
                     .gender(resultNode.path("gender").asText())
                     .nationalInfo(resultNode.path("nationalinfo").asText())
@@ -345,6 +348,7 @@ public class NiceCertificationService {
                     .encTime(resultNode.path("enctime").asText())
                     .resultCode(resultNode.path("resultcode").asText())
                     .siteCode(resultNode.path("sitecode").asText())
+                    .receiveData(resultNode.path("receivedata").asText())
                     .build();
             
             // 8. 사용이 완료된 세션 정보 삭제
@@ -393,7 +397,7 @@ public class NiceCertificationService {
                     .build();
             
             // 5. Redis에 세션 저장 (만료 시간 설정)
-            redisUtil.setDataExpire(sessionId, sessionDto, SESSION_EXPIRE_SECONDS);
+            redisUtil.setDataExpire(sessionId, sessionDto, sessionExpireSeconds);
             log.info("본인인증 세션 생성 완료: sessionId={}", sessionId);
             
             return sessionId;
@@ -414,12 +418,22 @@ public class NiceCertificationService {
             Object sessionData = redisUtil.getData(sessionId);
             if (sessionData == null) {
                 log.warn("세션 정보가 없거나 만료됨: sessionId={}", sessionId);
-                throw new RuntimeException("세션이 만료되었거나 유효하지 않습니다.");
+                throw new RuntimeException("본인인증 세션이 만료되었습니다. 다시 시도해주세요. (세션 유효시간: " + (sessionExpireSeconds / 60) + "분)");
             }
             
             // Redis에서 조회한 데이터를 NiceSessionDto로 변환
             if (sessionData instanceof NiceSessionDto) {
                 return (NiceSessionDto) sessionData;
+            } else if (sessionData instanceof java.util.LinkedHashMap) {
+                // LinkedHashMap인 경우 ObjectMapper의 convertValue를 사용하여 변환 (더 효율적)
+                try {
+                    NiceSessionDto sessionDto = objectMapper.convertValue(sessionData, NiceSessionDto.class);
+                    log.info("LinkedHashMap을 NiceSessionDto로 변환 완료: sessionId={}", sessionId);
+                    return sessionDto;
+                } catch (Exception conversionError) {
+                    log.error("LinkedHashMap 변환 중 오류: {}", conversionError.getMessage());
+                    throw new RuntimeException("세션 데이터 변환 실패", conversionError);
+                }
             } else {
                 log.error("세션 데이터 형식 오류: {}", sessionData.getClass().getName());
                 throw new RuntimeException("세션 데이터 형식이 올바르지 않습니다.");
