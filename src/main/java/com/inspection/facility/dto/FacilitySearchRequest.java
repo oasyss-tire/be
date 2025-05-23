@@ -10,7 +10,8 @@ import lombok.Setter;
 @Getter @Setter
 public class FacilitySearchRequest {
     
-    private String keyword;                // 키워드 검색 (모델번호, 시리얼번호, 관리번호에 적용)
+    private String search;                 // 통합 검색 (관리번호, 시리얼번호, 매장명, 품목, 시설물유형 중 하나라도 일치하는 항목)
+    private String keyword;                // 기존 키워드 검색 (모델번호, 시리얼번호, 관리번호에 적용)
     private String managementNumber;       // 관리번호 검색
     private String serialNumber;           // 시리얼번호 검색
     private String brandCode;              // 브랜드 코드

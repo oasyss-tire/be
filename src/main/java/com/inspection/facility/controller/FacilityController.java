@@ -47,10 +47,27 @@ public class FacilityController {
     @GetMapping
     public ResponseEntity<Page<FacilityDTO>> getFacilities(
             FacilitySearchRequest searchRequest,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime installationStartDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime installationEndDate,
+            @RequestParam(required = false) String statusCode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "facilityId") String sortBy,
             @RequestParam(defaultValue = "DESC") String sortDir) {
+        
+        searchRequest.setSearch(search);
+        
+        if (searchRequest.getInstallationStartDate() == null) {
+            searchRequest.setInstallationStartDate(installationStartDate);
+        }
+        if (searchRequest.getInstallationEndDate() == null) {
+            searchRequest.setInstallationEndDate(installationEndDate);
+        }
+        
+        if (searchRequest.getStatusCode() == null) {
+            searchRequest.setStatusCode(statusCode);
+        }
         
         Sort sort = sortDir.equalsIgnoreCase("ASC") ? 
                 Sort.by(sortBy).ascending() : 

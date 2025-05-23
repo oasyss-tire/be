@@ -34,6 +34,7 @@ import com.inspection.as.dto.ReceiveServiceRequestDTO;
 import com.inspection.as.dto.ServiceRequestDTO;
 import com.inspection.as.dto.UpdateServiceRequestDTO;
 import com.inspection.as.service.ServiceRequestService;
+import com.inspection.as.specification.ServiceRequestSpecification;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -57,12 +58,45 @@ public class ServiceRequestController {
     }
     
     /**
-     * 페이징된 AS 접수 목록 조회
+     * 페이징된 AS 접수 목록 조회 (필터링 기능 포함)
      */
     @GetMapping("/paged")
     public ResponseEntity<Page<ServiceRequestDTO>> getServiceRequestsPaged(
-            @PageableDefault(size = 10) Pageable pageable) {
-        Page<ServiceRequestDTO> page = serviceRequestService.getServiceRequests(pageable);
+            @PageableDefault(size = 10) Pageable pageable,
+            @RequestParam(value = "search", required = false) String search,
+            @RequestParam(value = "companyName", required = false) String companyName,
+            @RequestParam(value = "facilityTypeName", required = false) String facilityTypeName,
+            @RequestParam(value = "brandName", required = false) String brandName,
+            @RequestParam(value = "branchGroupId", required = false) String branchGroupId,
+            @RequestParam(value = "branchGroupName", required = false) String branchGroupName,
+            @RequestParam(value = "serviceStatusCode", required = false) String serviceStatusCode,
+            @RequestParam(value = "serviceStatusName", required = false) String serviceStatusName,
+            @RequestParam(value = "departmentTypeCode", required = false) String departmentTypeCode,
+            @RequestParam(value = "departmentTypeName", required = false) String departmentTypeName,
+            @RequestParam(value = "requestDateStart", required = false) 
+                @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime requestDateStart,
+            @RequestParam(value = "requestDateEnd", required = false) 
+                @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime requestDateEnd) {
+        
+        // Specification을 사용한 필터링
+        Page<ServiceRequestDTO> page = serviceRequestService.searchServiceRequests(
+            ServiceRequestSpecification.withFilters(
+                search,
+                companyName,
+                facilityTypeName,
+                brandName,
+                branchGroupId,
+                branchGroupName,
+                serviceStatusCode,
+                serviceStatusName,
+                departmentTypeCode,
+                departmentTypeName,
+                requestDateStart,
+                requestDateEnd
+            ), 
+            pageable
+        );
+        
         return ResponseEntity.ok(page);
     }
     

@@ -34,6 +34,7 @@ import com.inspection.facility.dto.FacilityUpdateRequest;
 import com.inspection.facility.dto.InboundTransactionRequest;
 import com.inspection.facility.entity.Facility;
 import com.inspection.facility.repository.FacilityRepository;
+import com.inspection.facility.specification.FacilitySpecification;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.CompanyRepository;
 import com.inspection.util.EncryptionUtil;
@@ -617,10 +618,29 @@ public class FacilityService {
      * 검색 조건 생성
      */
     private Specification<Facility> buildSearchSpecification(FacilitySearchRequest request) {
-        return (root, query, criteriaBuilder) -> {
+        Specification<Facility> spec = Specification.where(null);
+        
+        // 1. 통합 검색 (OR 조건)
+        if (StringUtils.hasText(request.getSearch())) {
+            spec = spec.and(FacilitySpecification.hasSearchKeyword(request.getSearch()));
+        }
+        
+        // 2. 상태 코드
+        if (StringUtils.hasText(request.getStatusCode())) {
+            spec = spec.and(FacilitySpecification.hasStatusCode(request.getStatusCode()));
+        }
+        
+        // 3. 설치일자 범위
+        spec = spec.and(FacilitySpecification.hasInstallationDateBetween(
+            request.getInstallationStartDate(), 
+            request.getInstallationEndDate()
+        ));
+        
+        // 기존 검색 조건들을 추가
+        spec = spec.and((root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
             
-            // 키워드 검색 (시리얼번호, 관리번호)
+            // 키워드 검색 (시리얼번호, 관리번호) - 기존 keyword 필드 유지
             if (StringUtils.hasText(request.getKeyword())) {
                 Predicate serialPredicate = criteriaBuilder.like(
                     criteriaBuilder.lower(root.get("serialNumber")), 
@@ -656,7 +676,7 @@ public class FacilityService {
                 ));
             }
             
-            // 회사 ID 검색 (위치 회사 또는 소유 회사)
+            // 회사 ID 검색 (위치 회사)
             if (request.getCompanyId() != null) {
                 Predicate locationCompanyPredicate = criteriaBuilder.equal(
                     root.get("locationCompany").get("id"), request.getCompanyId()
@@ -678,34 +698,10 @@ public class FacilityService {
                 ));
             }
             
-            // 상태 코드 검색
-            if (StringUtils.hasText(request.getStatusCode())) {
-                predicates.add(criteriaBuilder.equal(
-                    root.get("status").get("codeId"), request.getStatusCode()
-                ));
-            }
-            
             // 설치 유형 검색
             if (StringUtils.hasText(request.getInstallationTypeCode())) {
                 predicates.add(criteriaBuilder.equal(
                     root.get("installationType").get("codeId"), request.getInstallationTypeCode()
-                ));
-            }
-            
-            // 설치일 범위 검색
-            if (request.getInstallationStartDate() != null && request.getInstallationEndDate() != null) {
-                predicates.add(criteriaBuilder.between(
-                    root.get("installationDate"),
-                    request.getInstallationStartDate(),
-                    request.getInstallationEndDate()
-                ));
-            } else if (request.getInstallationStartDate() != null) {
-                predicates.add(criteriaBuilder.greaterThanOrEqualTo(
-                    root.get("installationDate"), request.getInstallationStartDate()
-                ));
-            } else if (request.getInstallationEndDate() != null) {
-                predicates.add(criteriaBuilder.lessThanOrEqualTo(
-                    root.get("installationDate"), request.getInstallationEndDate()
                 ));
             }
             
@@ -727,7 +723,9 @@ public class FacilityService {
             }
             
             return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
-        };
+        });
+        
+        return spec;
     }
     
     /**
