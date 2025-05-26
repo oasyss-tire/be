@@ -13,13 +13,21 @@ import org.springframework.web.bind.annotation.RestController;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.inspection.entity.Contract;
+import com.inspection.entity.ContractParticipant;
+import com.inspection.entity.NiceAuthenticationLog;
 import com.inspection.nice.dto.NiceCertificationRequestDto;
 import com.inspection.nice.dto.NiceCertificationResponseDto;
 import com.inspection.nice.dto.NiceCertificationResultDto;
 import com.inspection.nice.dto.NiceSessionDto;
 import com.inspection.nice.service.NiceCertificationService;
 import com.inspection.nice.service.NiceCertificationService.TokenRequestInfo;
+import com.inspection.repository.ContractParticipantRepository;
+import com.inspection.repository.ContractRepository;
+import com.inspection.service.NiceAuthenticationLogService;
 
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,6 +42,9 @@ public class NiceCertificationController {
 
     private final NiceCertificationService certificationService;
     private final ObjectMapper objectMapper;
+    private final NiceAuthenticationLogService authLogService;
+    private final ContractRepository contractRepository;
+    private final ContractParticipantRepository participantRepository;
     
     /**
      * 암호화 토큰 요청 API
@@ -232,5 +243,160 @@ public class NiceCertificationController {
                     .body("{\"success\":false,\"message\":\"" + e.getMessage() + "\"}");
             }
         }
+    }
+
+    /**
+     * 계약 참여자 본인인증 결과 처리 API (콜백)
+     * 특정 계약의 참여자가 NICE 본인인증 완료 후 호출되는 콜백 API
+     * 인증 결과를 처리하고 로그를 저장합니다.
+     * 
+     * @param contractId 계약 ID
+     * @param participantId 계약 참여자 ID
+     * @param tokenVersionId 토큰 버전 ID
+     * @param encData 암호화된 데이터
+     * @param integrityValue 무결성 체크 값
+     * @param requestNo 요청 번호
+     * @param authPurpose 인증 목적 (선택, 기본값: CONTRACT_SIGN)
+     * @param request HTTP 요청 (IP, User-Agent 추출용)
+     * @return 본인인증 결과
+     */
+    @PostMapping(value = "/callback/contract/{contractId}/participant/{participantId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> processContractParticipantAuth(
+            @PathVariable Long contractId,
+            @PathVariable Long participantId,
+            @RequestParam("token_version_id") String tokenVersionId,
+            @RequestParam("enc_data") String encData,
+            @RequestParam("integrity_value") String integrityValue,
+            @RequestParam("request_no") String requestNo,
+            @RequestParam(value = "auth_purpose", defaultValue = "CONTRACT_SIGN") String authPurpose,
+            HttpServletRequest request) {
+        
+        log.info("계약 참여자 본인인증 결과 처리 시작: contractId={}, participantId={}, requestNo={}",
+                contractId, participantId, requestNo);
+        
+        try {
+            // 1. 계약과 참여자 정보 조회
+            Contract contract = contractRepository.findById(contractId)
+                    .orElseThrow(() -> new EntityNotFoundException("계약을 찾을 수 없습니다: " + contractId));
+            
+            ContractParticipant participant = participantRepository.findById(participantId)
+                    .orElseThrow(() -> new EntityNotFoundException("참여자를 찾을 수 없습니다: " + participantId));
+            
+            // 2. 계약-참여자 관계 검증
+            if (!participant.getContract().getId().equals(contractId)) {
+                log.error("계약과 참여자가 일치하지 않습니다: contractId={}, participantId={}",
+                        contractId, participantId);
+                throw new RuntimeException("계약과 참여자가 일치하지 않습니다.");
+            }
+            
+            // 3. NICE 본인인증 결과 처리
+            NiceCertificationResultDto resultDto = certificationService.processCertificationResult(
+                tokenVersionId, encData, integrityValue, requestNo);
+            
+            // 4. 클라이언트 정보 추출
+            String ipAddress = getClientIpAddress(request);
+            String userAgent = request.getHeader("User-Agent");
+            
+            // 5. 인증 로그 저장
+            NiceAuthenticationLog authLog = authLogService.saveAuthenticationLog(
+                    contract,
+                    participant,
+                    resultDto,
+                    ipAddress,
+                    userAgent,
+                    authPurpose
+            );
+            
+            // 6. 응답 구성
+            ObjectNode responseNode = objectMapper.createObjectNode();
+            responseNode.put("success", true);
+            responseNode.put("contractId", contractId);
+            responseNode.put("participantId", participantId);
+            responseNode.put("requestNo", resultDto.getRequestNo());
+            responseNode.put("responseNo", resultDto.getResponseNo());
+            responseNode.put("authSuccess", authLog.isAuthenticationSuccess());
+            responseNode.put("authType", resultDto.getAuthType());
+            responseNode.put("encTime", resultDto.getEncTime());
+            responseNode.put("ci", resultDto.getCi());
+            responseNode.put("nationalInfo", resultDto.getNationalInfo());
+            responseNode.put("logId", authLog.getId());
+            responseNode.put("message", authLog.isAuthenticationSuccess() ? 
+                    "본인인증이 성공적으로 완료되었습니다." : "본인인증에 실패했습니다.");
+            
+            // 개발환경에서만 개인정보 포함 (실제 운영에서는 제거)
+            if (authLog.isAuthenticationSuccess()) {
+                ObjectNode personalInfo = objectMapper.createObjectNode();
+                personalInfo.put("name", resultDto.getName());
+                personalInfo.put("birthDate", resultDto.getBirthDate());
+                personalInfo.put("gender", resultDto.getGender());
+                personalInfo.put("mobileNo", resultDto.getMobileNo());
+                personalInfo.put("mobileCo", resultDto.getMobileCo());
+                personalInfo.put("di", resultDto.getDi());
+                personalInfo.put("nationalInfo", resultDto.getNationalInfo());
+                responseNode.set("personalInfo", personalInfo);
+            }
+            
+            String response = objectMapper.writeValueAsString(responseNode);
+            log.info("계약 참여자 본인인증 결과 처리 완료: contractId={}, participantId={}, success={}",
+                    contractId, participantId, authLog.isAuthenticationSuccess());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("계약 참여자 본인인증 결과 처리 오류: contractId={}, participantId={}",
+                    contractId, participantId, e);
+            
+            try {
+                ObjectNode errorNode = objectMapper.createObjectNode()
+                    .put("success", false)
+                    .put("contractId", contractId)
+                    .put("participantId", participantId)
+                    .put("requestNo", requestNo)
+                    .put("message", e.getMessage());
+                
+                String formattedError = objectMapper.writeValueAsString(errorNode);
+                return ResponseEntity.internalServerError().body(formattedError);
+            } catch (Exception jsonEx) {
+                return ResponseEntity.internalServerError()
+                    .body("{\"success\":false,\"message\":\"" + e.getMessage() + "\"}");
+            }
+        }
+    }
+
+    /**
+     * 클라이언트 IP 주소를 추출합니다.
+     * 프록시나 로드밸런서를 고려하여 실제 클라이언트 IP를 추출합니다.
+     * 
+     * @param request HTTP 요청
+     * @return 클라이언트 IP 주소
+     */
+    private String getClientIpAddress(HttpServletRequest request) {
+        String[] headerNames = {
+            "X-Forwarded-For",
+            "X-Real-IP", 
+            "Proxy-Client-IP",
+            "WL-Proxy-Client-IP",
+            "HTTP_X_FORWARDED_FOR",
+            "HTTP_X_FORWARDED",
+            "HTTP_X_CLUSTER_CLIENT_IP",
+            "HTTP_CLIENT_IP",
+            "HTTP_FORWARDED_FOR",
+            "HTTP_FORWARDED",
+            "HTTP_VIA",
+            "REMOTE_ADDR"
+        };
+        
+        for (String header : headerNames) {
+            String ip = request.getHeader(header);
+            if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
+                // X-Forwarded-For 헤더는 여러 IP가 콤마로 구분될 수 있음
+                if (ip.contains(",")) {
+                    ip = ip.split(",")[0].trim();
+                }
+                return ip;
+            }
+        }
+        
+        return request.getRemoteAddr();
     }
 } 

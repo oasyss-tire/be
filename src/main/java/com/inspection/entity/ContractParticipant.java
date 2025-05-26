@@ -62,6 +62,10 @@ public class ContractParticipant {
     @JoinColumn(name = "contract_id")
     private Contract contract;             // 연관된 계약
     
+    // NICE 본인인증 관련 필드 추가
+    private LocalDateTime lastAuthAt;      // 마지막 본인인증 일시
+    private String lastAuthCi;             // 마지막 인증 시 CI (본인 확인용)
+    
     @Transient  // DB에 저장되지 않는 필드
     private EncryptionUtil encryptionUtil;
     
@@ -81,5 +85,37 @@ public class ContractParticipant {
     
     public String getDecryptedPhoneNumber() {
         return encryptionUtil.decrypt(this.phoneNumber);
+    }
+    
+    // NICE 본인인증 관련 편의 메서드
+    
+    /**
+     * 본인인증 완료 여부 확인
+     */
+    public boolean isAuthenticated() {
+        return this.lastAuthAt != null;
+    }
+    
+    /**
+     * 특정 CI와 일치하는지 확인 (본인 확인용)
+     */
+    public boolean isMatchingCi(String ci) {
+        return this.lastAuthCi != null && this.lastAuthCi.equals(ci);
+    }
+    
+    /**
+     * 본인인증 정보 업데이트
+     */
+    public void updateAuthenticationInfo(String ci) {
+        this.lastAuthAt = LocalDateTime.now();
+        this.lastAuthCi = ci;
+    }
+    
+    /**
+     * 본인인증 정보 초기화 (재인증 필요 시)
+     */
+    public void resetAuthenticationInfo() {
+        this.lastAuthAt = null;
+        this.lastAuthCi = null;
     }
 } 

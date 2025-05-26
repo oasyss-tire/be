@@ -79,7 +79,8 @@ public class SecurityConfig {
                     "/api/participants/**",
                     "/api/brands/**",
                     "/api/contract-event-logs/**",
-                    "/service-request-images/**"
+                    "/service-request-images/**",
+                    "/api/nice/certification/**"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/manager/**").hasRole("MANAGER")
