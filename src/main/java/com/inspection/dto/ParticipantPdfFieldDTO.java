@@ -16,7 +16,6 @@ import lombok.extern.slf4j.Slf4j;
 @NoArgsConstructor
 public class ParticipantPdfFieldDTO {
     private Long id;
-    private Long originalFieldId;
     private Long participantId;
     private String pdfId;
     private String fieldId;
@@ -39,7 +38,6 @@ public class ParticipantPdfFieldDTO {
 
     public ParticipantPdfFieldDTO(ParticipantPdfField field) {
         this.id = field.getId();
-        this.originalFieldId = field.getOriginalField() != null ? field.getOriginalField().getId() : null;
         this.participantId = field.getParticipant() != null ? field.getParticipant().getId() : null;
         this.pdfId = field.getPdfId();
         this.fieldId = field.getFieldId();

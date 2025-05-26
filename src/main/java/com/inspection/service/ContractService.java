@@ -571,7 +571,6 @@ public class ContractService {
         List<ParticipantPdfField> participantFields = templateFields.stream()
             .map(templateField -> {
                 ParticipantPdfField participantField = new ParticipantPdfField();
-                participantField.setOriginalField(templateField);
                 participantField.setParticipant(participant);
                 participantField.setPdfId(targetPdfId);
                 participantField.setFieldId(templateField.getFieldId());

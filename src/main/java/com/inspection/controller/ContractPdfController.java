@@ -195,11 +195,35 @@ public class ContractPdfController {
         return ResponseEntity.ok(dtos);
     }
 
-    // 템플릿 상세 조회 (추가)
+    // 템플릿 상세 조회 (JSON 반환)
     @GetMapping("/templates/{templateId}")
     public ResponseEntity<ContractTemplateDTO> getTemplate(@PathVariable Long templateId) {
         ContractTemplate template = contractTemplateService.getTemplate(templateId);
         return ResponseEntity.ok(new ContractTemplateDTO(template));
+    }
+    
+    /**
+     * 템플릿 PDF 파일 조회 (한글 파일명 지원)
+     */
+    @GetMapping("/templates/{templateId}/file")
+    public ResponseEntity<byte[]> getTemplatePdfFile(@PathVariable Long templateId) {
+        try {
+            ContractTemplate template = contractTemplateService.getTemplate(templateId);
+            byte[] pdfBytes = contractTemplateService.getTemplatePdf(templateId);
+            
+            // 템플릿명을 파일명으로 사용하고 한글 인코딩 처리
+            String filename = template.getTemplateName() + ".pdf";
+            String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString())
+                    .replaceAll("\\+", "%20");
+            
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" + encodedFilename)
+                .body(pdfBytes);
+        } catch (Exception e) {
+            log.error("Error getting template PDF file: templateId={}", templateId, e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     // 템플릿 미리보기
@@ -237,9 +261,13 @@ public class ContractPdfController {
         List<ContractPdfField> fields = contractPdfFieldRepository.findByPdfId(pdfId);
         byte[] processedPdf = pdfProcessingService.addFieldsToPdf(originalPdf, fields);
         
+        // 한글 파일명 URL 인코딩
+        String encodedFileName = URLEncoder.encode("preview_" + pdfId, StandardCharsets.UTF_8.toString())
+                .replaceAll("\\+", "%20");
+        
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
-            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"preview.pdf\"")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" + encodedFileName)
             .header("X-Frame-Options", "SAMEORIGIN")
             .header("Content-Security-Policy", "frame-ancestors 'self'")
             .body(processedPdf);
@@ -251,9 +279,13 @@ public class ContractPdfController {
     public ResponseEntity<byte[]> downloadPdf(@PathVariable String pdfId) throws IOException {
         byte[] pdf = pdfStorageService.loadPdf(pdfId);
         
+        // 한글 파일명 URL 인코딩
+        String encodedFileName = URLEncoder.encode(pdfId, StandardCharsets.UTF_8.toString())
+                .replaceAll("\\+", "%20");
+        
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
-            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + pdfId + "\"")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedFileName)
             .body(pdf);
     }
 
@@ -268,9 +300,14 @@ public class ContractPdfController {
             
             if (Files.exists(contractPath)) {
                 byte[] pdf = Files.readAllBytes(contractPath);
+                
+                // 한글 파일명 URL 인코딩
+                String encodedFileName = URLEncoder.encode(pdfId, StandardCharsets.UTF_8.toString())
+                        .replaceAll("\\+", "%20");
+                
                 return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + pdfId + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" + encodedFileName)
                     .body(pdf);
             }
             
@@ -289,9 +326,13 @@ public class ContractPdfController {
 
             byte[] pdf = Files.readAllBytes(pdfPath);
             
+            // 한글 파일명 URL 인코딩
+            String encodedFileName = URLEncoder.encode(pdfId, StandardCharsets.UTF_8.toString())
+                    .replaceAll("\\+", "%20");
+            
             return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + pdfId + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" + encodedFileName)
                 .body(pdf);
                 
         } catch (Exception e) {

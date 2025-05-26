@@ -32,10 +32,6 @@ public class ParticipantPdfField {
     private Long id;
 
     @ManyToOne
-    @JoinColumn(name = "original_field_id")
-    private ContractPdfField originalField;
-    
-    @ManyToOne
     @JoinColumn(name = "participant_id", nullable = false)
     private ContractParticipant participant;
     

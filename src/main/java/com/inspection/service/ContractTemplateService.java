@@ -94,26 +94,33 @@ public class ContractTemplateService {
         return pdfProcessingService.addFieldsToPdf(originalPdf, template.getFields());
     }
     
-    // 추가 유틸리티 메서드들
-    // @Transactional(readOnly = true)
-    // public List<ContractTemplate> getActiveTemplates() {
-    //     return templateRepository.findByIsActiveTrue();
-    // }
+    /**
+     * 템플릿 상세 조회
+     */
+    public ContractTemplate getTemplate(Long templateId) {
+        return templateRepository.findByIdWithFields(templateId)
+            .orElseThrow(() -> new RuntimeException("Template not found with id: " + templateId));
+    }
+    
+    /**
+     * 모든 활성 템플릿 조회
+     */
+    public List<ContractTemplate> getAllTemplates() {
+        return templateRepository.findAllTemplates();
+    }
+    
+    /**
+     * 템플릿 PDF 파일 반환 (한글 파일명 지원)
+     */
+    public byte[] getTemplatePdf(Long templateId) throws IOException {
+        ContractTemplate template = getTemplate(templateId);
+        return pdfStorageService.loadTemplatePdf(template.getProcessedPdfId());
+    }
     
     public void deactivateTemplate(Long templateId) {
         ContractTemplate template = templateRepository.findById(templateId)
             .orElseThrow(() -> new RuntimeException("Template not found"));
         template.setActive(false);
         templateRepository.save(template);
-    }
-    
-    public ContractTemplate getTemplate(Long templateId) {
-        return templateRepository.findByIdWithFields(templateId)
-            .orElseThrow(() -> new RuntimeException("Template not found: " + templateId));
-    }
-    
-    @Transactional(readOnly = true)
-    public List<ContractTemplate> getAllTemplates() {
-        return templateRepository.findAllTemplates();  // 모든 템플릿 조회
     }
 } 
