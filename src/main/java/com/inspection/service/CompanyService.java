@@ -62,14 +62,23 @@ public class CompanyService {
      */
     @Transactional
     public CompanyDTO createCompany(CreateCompanyRequest request) {
-        // 중복 정보 체크
-        checkDuplicateInfo(request);
-        
-        // storeNumber 자동 생성 (001~999)
-        String storeNumber = generateNextStoreNumber();
+        // storeNumber 유효성 검사 (3자리 숫자인지)
+        if (request.getStoreNumber() == null || !request.getStoreNumber().matches("^\\d{3}$")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "매장번호(storeNumber)는 3자리 숫자여야 합니다.");
+        }
+
+        // 중복 정보 체크 (storeNumber 포함) - 신규 생성이므로 existingCompanyId는 null
+        checkDuplicateInfo(request, null); 
         
         Company company = request.toEntity();
-        company.setStoreNumber(storeNumber); // 자동 생성된 storeNumber 설정
+        // storeNumber는 request에서 직접 받아서 설정 (자동생성 로직 제거)
+        company.setStoreNumber(request.getStoreNumber()); 
+        
+        // trusteeCode 자동 생성 (연도+점번+순번 형식)
+        String trusteeCode = generateTrusteeCode(company.getStoreNumber());
+        company.setTrusteeCode(trusteeCode);
+        
+        log.info("회사 생성 - 입력된 정보: storeNumber={}, 자동생성된 trusteeCode={}", company.getStoreNumber(), trusteeCode);
         
         // 등록자 정보가 없는 경우 기본값 설정
         if (company.getCreatedBy() == null || company.getCreatedBy().isEmpty()) {
@@ -107,9 +116,10 @@ public class CompanyService {
         // 수탁자 이력 저장
         trusteeHistoryRepository.save(trusteeHistory);
         
-        log.info("회사 생성 완료: {}, 매장번호: {}, 등록자: {}, 수탁자 이력 생성됨", 
+        log.info("회사 생성 완료: {}, 매장번호: {}, 수탁코드: {}, 등록자: {}, 수탁자 이력 생성됨", 
                 savedCompany.getStoreName(), 
                 savedCompany.getStoreNumber(),
+                savedCompany.getTrusteeCode(),
                 savedCompany.getCreatedBy());
                 
         CompanyDTO companyDTO = CompanyDTO.fromEntity(savedCompany);
@@ -157,7 +167,8 @@ public class CompanyService {
         return savedUser;
     }
     
-    // 매장번호 자동생성
+    // 매장번호 자동생성 -> 수동 입력 방식으로 변경되어 주석 처리 또는 삭제
+    /*
     private String generateNextStoreNumber() {
         // 가장 큰 매장 번호 조회
         String maxStoreNumber = companyRepository.findMaxStoreNumber();
@@ -179,6 +190,79 @@ public class CompanyService {
         
         // 3자리 숫자로 포맷팅 (001, 002, ...)
         return String.format("%03d", nextNumber);
+    }
+    */
+    
+    /**
+     * 수탁코드를 자동생성합니다.
+     * 형식: {연도(4자리) + 점번(3자리) + 순번(3자리)}
+     * 예: 2025123001, 2025123002, 2025321001, 2026123001
+     * 
+     * @param storeNumber 점번 (3자리, 예: "123")
+     * @return 자동생성된 수탁코드
+     */
+    private String generateTrusteeCode(String storeNumber) {
+        // 현재 연도 가져오기
+        int currentYear = java.time.LocalDate.now().getYear();
+        String yearStr = String.valueOf(currentYear);
+        
+        log.info("수탁코드 자동생성 시작: 연도={}, 점번={}", currentYear, storeNumber);
+        
+        // 1. Company 테이블에서 기존 수탁코드 조회
+        List<String> companyTrusteeCodes = companyRepository.findTrusteeCodesByYearAndStoreNumber(yearStr, storeNumber);
+        
+        // 2. CompanyTrusteeHistory 테이블에서도 기존 수탁코드 조회 (수탁자 변경 이력 포함)
+        List<String> historyTrusteeCodes = companyRepository.findTrusteeCodesFromHistoryByYearAndStoreNumber(yearStr, storeNumber);
+        
+        // 3. 두 목록을 합쳐서 최대 순번 찾기
+        int maxSequence = 0;
+        
+        // Company에서 최대 순번 찾기
+        for (String trusteeCode : companyTrusteeCodes) {
+            try {
+                // trusteeCode 형식: YYYY{storeNumber}XXX (예: 2025123001)
+                // 마지막 3자리가 순번
+                if (trusteeCode != null && trusteeCode.length() >= 10) {
+                    String sequenceStr = trusteeCode.substring(trusteeCode.length() - 3);
+                    int sequence = Integer.parseInt(sequenceStr);
+                    maxSequence = Math.max(maxSequence, sequence);
+                }
+            } catch (NumberFormatException e) {
+                log.warn("잘못된 수탁코드 형식 (Company): {}", trusteeCode);
+            }
+        }
+        
+        // CompanyTrusteeHistory에서 최대 순번 찾기
+        for (String trusteeCode : historyTrusteeCodes) {
+            try {
+                // trusteeCode 형식: YYYY{storeNumber}XXX (예: 2025123001)
+                // 마지막 3자리가 순번
+                if (trusteeCode != null && trusteeCode.length() >= 10) {
+                    String sequenceStr = trusteeCode.substring(trusteeCode.length() - 3);
+                    int sequence = Integer.parseInt(sequenceStr);
+                    maxSequence = Math.max(maxSequence, sequence);
+                }
+            } catch (NumberFormatException e) {
+                log.warn("잘못된 수탁코드 형식 (CompanyTrusteeHistory): {}", trusteeCode);
+            }
+        }
+        
+        // 4. 다음 순번 계산
+        int nextSequence = maxSequence + 1;
+        
+        // 5. 순번 범위 체크 (001-999)
+        if (nextSequence > 999) {
+            throw new IllegalStateException(
+                String.format("해당 연도(%d)와 점번(%s)의 수탁코드 순번이 최대값(999)을 초과했습니다.", currentYear, storeNumber));
+        }
+        
+        // 6. 수탁코드 생성: 연도(4자리) + 점번(3자리) + 순번(3자리)
+        String trusteeCode = String.format("%s%s%03d", yearStr, storeNumber, nextSequence);
+        
+        log.info("수탁코드 자동생성 완료: {} (연도: {}, 점번: {}, 순번: {})", 
+            trusteeCode, currentYear, storeNumber, nextSequence);
+        
+        return trusteeCode;
     }
     
     /**
@@ -281,43 +365,13 @@ public class CompanyService {
             Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new IllegalArgumentException("회사를 찾을 수 없습니다. ID: " + companyId));
             
-            // 자기 자신과의 비교는 제외하고 중복 체크
-            // 매장코드 중복 체크 (변경된 경우)
-            if (!company.getStoreCode().equals(request.getStoreCode())) {
-                companyRepository.findByStoreCode(request.getStoreCode())
-                    .ifPresent(c -> {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 존재하는 매장코드입니다: " + request.getStoreCode());
-                    });
+            // storeNumber 유효성 검사 (3자리 숫자인지)
+            if (request.getStoreNumber() == null || !request.getStoreNumber().matches("^\\d{3}$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "매장번호(storeNumber)는 3자리 숫자여야 합니다.");
             }
-            
-            // 사업자번호 중복 체크 (변경된 경우)
-            if (request.getBusinessNumber() != null && !request.getBusinessNumber().isEmpty() &&
-                !encryptionUtil.encrypt(request.getBusinessNumber()).equals(company.getBusinessNumber())) {
-                
-                String encryptedBusinessNumber = encryptionUtil.encrypt(request.getBusinessNumber());
-                companyRepository.findByBusinessNumber(encryptedBusinessNumber)
-                    .ifPresent(c -> {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 등록된 사업자번호입니다: " + request.getBusinessNumber());
-                    });
-            }
-            
-            // 수탁코드 중복 체크 (변경된 경우)
-            if (request.getTrusteeCode() != null && !request.getTrusteeCode().isEmpty() &&
-                !request.getTrusteeCode().equals(company.getTrusteeCode())) {
-                companyRepository.findByTrusteeCode(request.getTrusteeCode())
-                    .ifPresent(c -> {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다: " + request.getTrusteeCode());
-                    });
-            }
-            
-            // 종사업장번호 중복 체크 (변경된 경우)
-            if (request.getSubBusinessNumber() != null && !request.getSubBusinessNumber().isEmpty() &&
-                !request.getSubBusinessNumber().equals(company.getSubBusinessNumber())) {
-                companyRepository.findBySubBusinessNumber(request.getSubBusinessNumber())
-                    .ifPresent(c -> {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
-                    });
-            }
+
+            // 중복 정보 체크 (storeNumber 포함) - 수정이므로 companyId 전달
+            checkDuplicateInfo(request, companyId);
             
             // 기존 등록자 정보 저장 (수정 시에는 등록자 정보를 변경하지 않음)
             String originalCreatedBy = company.getCreatedBy();
@@ -708,13 +762,27 @@ public class CompanyService {
             .collect(Collectors.toList());
     }
 
-    private void checkDuplicateInfo(CreateCompanyRequest request) {
+    private void checkDuplicateInfo(CreateCompanyRequest request, Long existingCompanyId) {
+        boolean isCreating = (existingCompanyId == null);
+
         // 매장코드 중복 체크
         if (StringUtils.hasText(request.getStoreCode())) {
             companyRepository.findByStoreCode(request.getStoreCode())
-                    .ifPresent(company -> {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 매장코드입니다: " + request.getStoreCode());
+                    .ifPresent(foundCompany -> {
+                        if (isCreating || !foundCompany.getId().equals(existingCompanyId)) { 
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 매장코드입니다: " + request.getStoreCode());
+                        }
                     });
+        }
+
+        // 매장번호(storeNumber) 중복 체크
+        if (StringUtils.hasText(request.getStoreNumber())) {
+            companyRepository.findByStoreNumber(request.getStoreNumber())
+                .ifPresent(foundCompany -> {
+                    if (isCreating || !foundCompany.getId().equals(existingCompanyId)) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 매장번호입니다: " + request.getStoreNumber());
+                    }
+                });
         }
 
         // 사업자번호 중복 체크
@@ -723,10 +791,15 @@ public class CompanyService {
                 // 암호화된 사업자번호로 조회
                 String encryptedBusinessNumber = encryptionUtil.encrypt(request.getBusinessNumber());
                 companyRepository.findByBusinessNumber(encryptedBusinessNumber)
-                        .ifPresent(company -> {
-                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 사업자번호입니다: " + request.getBusinessNumber());
+                        .ifPresent(foundCompany -> {
+                            if (isCreating || !foundCompany.getId().equals(existingCompanyId)) {
+                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 사업자번호입니다: " + request.getBusinessNumber());
+                            }
                         });
             } catch (Exception e) {
+                if (e instanceof ResponseStatusException) {
+                    throw e;
+                }
                 log.error("사업자번호 암호화 또는 중복 체크 중 오류 발생: {}", e.getMessage(), e);
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "사업자번호 중복 체크 중 오류가 발생했습니다.");
             }
@@ -736,8 +809,10 @@ public class CompanyService {
         if (StringUtils.hasText(request.getTrusteeCode())) {
             try {
                 companyRepository.findByTrusteeCode(request.getTrusteeCode())
-                        .ifPresent(company -> {
-                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다: " + request.getTrusteeCode());
+                        .ifPresent(foundCompany -> {
+                            if (isCreating || !foundCompany.getId().equals(existingCompanyId)) {
+                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 수탁코드입니다: " + request.getTrusteeCode());
+                            }
                         });
             } catch (Exception e) {
                 if (e instanceof ResponseStatusException) {
@@ -752,8 +827,10 @@ public class CompanyService {
         if (StringUtils.hasText(request.getSubBusinessNumber())) {
             try {
                 companyRepository.findBySubBusinessNumber(request.getSubBusinessNumber())
-                        .ifPresent(company -> {
-                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
+                        .ifPresent(foundCompany -> {
+                            if (isCreating || !foundCompany.getId().equals(existingCompanyId)) {
+                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 사용 중인 종사업장번호입니다: " + request.getSubBusinessNumber());
+                            }
                         });
             } catch (Exception e) {
                 if (e instanceof ResponseStatusException) {

@@ -11,8 +11,7 @@ import lombok.Setter;
 @Getter @Setter
 public class CreateCompanyRequest {
     private String storeCode;        // 매장코드
-    // storeNumber는 서버에서 자동 생성되므로 선택적 필드로 변경
-    private String storeNumber;      // 점번 (자동 생성)
+    private String storeNumber;      // 점번 (필수, 3자리 숫자)
     private String storeName;        // 매장명
     private String trustee;          // 수탁자
     private String trusteeCode;      // 수탁코드
@@ -39,7 +38,7 @@ public class CreateCompanyRequest {
     public Company toEntity() {
         Company company = new Company();
         company.setStoreCode(this.storeCode);
-        // storeNumber는 서비스에서 자동 생성하므로 여기서 설정하지 않음
+        company.setStoreNumber(this.storeNumber);
         company.setStoreName(this.storeName);
         company.setTrustee(this.trustee);
         company.setTrusteeCode(this.trusteeCode);
