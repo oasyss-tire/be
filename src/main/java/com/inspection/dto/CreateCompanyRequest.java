@@ -11,7 +11,7 @@ import lombok.Setter;
 @Getter @Setter
 public class CreateCompanyRequest {
     private String storeCode;        // 매장코드
-    private String storeNumber;      // 점번 (필수, 3자리 숫자)
+    private String storeNumber;      // 점번 (선택사항, 미입력시 자동생성, 3자리 숫자)
     private String storeName;        // 매장명
     private String trustee;          // 수탁자
     private String trusteeCode;      // 수탁코드

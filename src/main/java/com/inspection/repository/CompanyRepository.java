@@ -81,4 +81,8 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
     // 매장명, 사업자번호 또는 매장코드로 회사 검색 (키워드 검색) - 페이징 처리
     Page<Company> findByStoreNameContainingOrBusinessNumberContainingOrStoreCodeContaining(
             String storeNameKeyword, String businessNumberKeyword, String storeCodeKeyword, Pageable pageable);
+    
+    // 사용중인 모든 점번 조회 (자동생성 시 중복 방지용)
+    @Query("SELECT c.storeNumber FROM Company c ORDER BY c.storeNumber")
+    List<String> findAllStoreNumbers();
 } 
