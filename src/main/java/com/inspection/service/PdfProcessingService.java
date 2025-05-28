@@ -98,7 +98,7 @@ public class PdfProcessingService {
                 document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                 
                 switch (type) {
-                    case "text", "confirmText" -> addTextContent(contentStream, document, x, y, height, value);
+                    case "text", "confirmText" -> addTextContent(contentStream, document, x, y, width, height, value);
                     case "signature" -> {
                         // Base64 이미지 데이터를 바이트 배열로 변환
                         byte[] imageData = Base64.getDecoder().decode(value.split(",")[1]);
@@ -114,17 +114,52 @@ public class PdfProcessingService {
         }
     }
     
-    private void addTextContent(PDPageContentStream contentStream, PDDocument document, float x, float y, float height, String text) throws IOException {
+    private void addTextContent(PDPageContentStream contentStream, PDDocument document, float x, float y, float width, float height, String text) throws IOException {
+        if (text == null || text.trim().isEmpty()) {
+            return;
+        }
+        
         try {
             InputStream fontStream = getClass().getResourceAsStream("/fonts/nanum-gothic/NanumGothic.ttf");
             PDType0Font nanumGothic = PDType0Font.load(document, fontStream);
             
+            // 필드 영역 계산 (여백 고려)
+            float availableWidth = width - 4; // 좌우 여백 2px씩
+            float availableHeight = height - 4; // 상하 여백 2px씩
+            float padding = 2f;
+            
+            // 최적 폰트 크기 계산 (계약서 정보 보호를 위해 더 작은 폰트까지 허용)
+            float fontSize = calculateOptimalFontSize(nanumGothic, text, availableWidth, availableHeight);
+            
             contentStream.beginText();
-            contentStream.setFont(nanumGothic, 12);
+            contentStream.setFont(nanumGothic, fontSize);
             contentStream.setNonStrokingColor(0, 0, 0);
-            contentStream.newLineAtOffset(x + 2, PDF_HEIGHT - y - height + 2);
-            contentStream.showText(text != null ? text : "");
-            contentStream.endText();
+            
+            // 텍스트를 줄바꿈하여 표시
+            List<String> lines = wrapText(nanumGothic, text, availableWidth, fontSize);
+            
+            float lineHeight = fontSize + 1; // 줄 간격 최소화
+            float startY = PDF_HEIGHT - y - padding - fontSize;
+            
+            // 첫 번째 줄 위치 설정
+            contentStream.newLineAtOffset(x + padding, startY);
+            
+            // 계약서 정보 보호: 영역을 벗어나더라도 모든 줄 표시
+            for (int i = 0; i < lines.size(); i++) {
+                // 영역을 벗어나는 경우 경고 로그만 출력하고 계속 진행
+                if (i * lineHeight > availableHeight && i > 0) {
+                    log.warn("텍스트가 지정된 영역을 벗어남 (줄 {}/{}): {}", 
+                            i + 1, lines.size(), 
+                            text.substring(0, Math.min(20, text.length())) + "...");
+                }
+                
+                // 첫 번째 줄이 아니면 아래로 이동
+                if (i > 0) {
+                    contentStream.newLineAtOffset(0, -lineHeight);
+                }
+                
+                contentStream.showText(lines.get(i));
+            }
             
             if (fontStream != null) {
                 fontStream.close();
@@ -132,13 +167,127 @@ public class PdfProcessingService {
         } catch (IOException e) {
             log.error("나눔고딕 폰트 로드 실패: {}", e.getMessage());
             // 폰트 로드 실패시 기본 폰트로 폴백
-            contentStream.beginText();
-            contentStream.setFont(PDType1Font.HELVETICA, 12);
-            contentStream.setNonStrokingColor(0, 0, 0);
-            contentStream.newLineAtOffset(x + 2, PDF_HEIGHT - y - height + 2);
-            contentStream.showText(text != null ? text : "");
-            contentStream.endText();
+            addTextContentFallback(contentStream, x, y, height, text);
         }
+    }
+    
+    /**
+     * 폰트와 텍스트에 맞는 최적 폰트 크기 계산 (계약서 정보 보호를 위해 더 작은 폰트까지 허용)
+     */
+    private float calculateOptimalFontSize(PDType0Font font, String text, float availableWidth, float availableHeight) throws IOException {
+        float maxFontSize = 14f;
+        float minFontSize = 7f;  // 가독성 개선 (기존 5px → 7px)
+        
+        for (float fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 0.5f) {
+            float textWidth = font.getStringWidth(text) / 1000 * fontSize;
+            
+            // 한 줄에 들어가면 해당 폰트 크기 사용
+            if (textWidth <= availableWidth) {
+                return fontSize;
+            }
+            
+            // 여러 줄로 나눠서 들어가는지 확인 (줄 간격 최소화)
+            List<String> lines = wrapText(font, text, availableWidth, fontSize);
+            float lineHeight = fontSize + 1; // 줄 간격 최소화 (기존 +2 → +1)
+            float totalHeight = lines.size() * lineHeight;
+            
+            if (totalHeight <= availableHeight) {
+                return fontSize;
+            }
+        }
+        
+        // 계약서 정보 보호: 최소 폰트로도 안 들어가면 그냥 최소 폰트 사용
+        log.warn("텍스트가 지정된 영역에 완전히 들어가지 않음 - 영역을 벗어나더라도 모든 정보 표시");
+        return minFontSize;
+    }
+    
+    /**
+     * 텍스트를 지정된 너비에 맞게 줄바꿈
+     */
+    private List<String> wrapText(PDType0Font font, String text, float maxWidth, float fontSize) throws IOException {
+        List<String> lines = new ArrayList<>();
+        String[] words = text.split("\\s+");
+        StringBuilder currentLine = new StringBuilder();
+        
+        for (String word : words) {
+            String testLine = currentLine.length() == 0 ? word : currentLine + " " + word;
+            float testWidth = font.getStringWidth(testLine) / 1000 * fontSize;
+            
+            if (testWidth <= maxWidth) {
+                currentLine = new StringBuilder(testLine);
+            } else {
+                if (currentLine.length() > 0) {
+                    lines.add(currentLine.toString());
+                    currentLine = new StringBuilder(word);
+                } else {
+                    // 단어가 너무 긴 경우 강제로 자르기
+                    lines.add(word);
+                }
+            }
+        }
+        
+        if (currentLine.length() > 0) {
+            lines.add(currentLine.toString());
+        }
+        
+        return lines;
+    }
+    
+    /**
+     * 기본 폰트 사용 시 폴백 메서드 (계약서 정보 보호를 위해 텍스트 자르지 않음)
+     */
+    private void addTextContentFallback(PDPageContentStream contentStream, float x, float y, float height, String text) throws IOException {
+        log.warn("나눔고딕 폰트 로드 실패로 기본 폰트 사용 - 텍스트: {}", text.substring(0, Math.min(10, text.length())) + "...");
+        
+        contentStream.beginText();
+        contentStream.setFont(PDType1Font.HELVETICA, 10);
+        contentStream.setNonStrokingColor(0, 0, 0);
+        
+        // 계약서 정보 보호: 텍스트를 자르지 않고 모두 표시
+        // 기본 폰트로도 간단한 줄바꿈 처리
+        float fontSize = 10f;
+        float lineHeight = fontSize + 2;
+        float maxWidth = 200f; // 대략적인 최대 너비 (실제 필드 너비를 모르므로 보수적으로 설정)
+        
+        // 단순 줄바꿈 (공백 기준)
+        String[] words = text.split("\\s+");
+        StringBuilder currentLine = new StringBuilder();
+        float currentY = PDF_HEIGHT - y - height + height - fontSize; // 시작 Y 위치
+        int lineCount = 0;
+        
+        contentStream.newLineAtOffset(x + 2, currentY);
+        
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i];
+            String testLine = currentLine.length() == 0 ? word : currentLine + " " + word;
+            
+            // 대략적인 폭 계산 (정확하지 않지만 안전)
+            if (testLine.length() * 6 <= maxWidth) { // 평균 글자 폭 6px로 추정
+                currentLine = new StringBuilder(testLine);
+            } else {
+                // 현재 줄 출력
+                if (currentLine.length() > 0) {
+                    contentStream.showText(currentLine.toString());
+                    lineCount++;
+                    
+                    // 다음 줄로 이동
+                    if (i < words.length - 1) { // 마지막이 아니면
+                        contentStream.newLineAtOffset(0, -lineHeight);
+                    }
+                }
+                currentLine = new StringBuilder(word);
+            }
+        }
+        
+        // 마지막 줄 출력
+        if (currentLine.length() > 0) {
+            contentStream.showText(currentLine.toString());
+        }
+        
+        contentStream.endText();
+        
+        // 경고 로그 추가
+        log.warn("폰트 로드 실패로 기본 폰트 사용됨 - 계약서 정보 완전성 확인 필요");
     }
     
     private void addSignatureContent(PDPageContentStream contentStream, PDDocument document, 
@@ -243,7 +392,7 @@ public class PdfProcessingService {
                     document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
                     
                     switch (field.getType()) {
-                        case "text", "confirmText" -> addTextContent(contentStream, document, x, y, height, fieldValue);
+                        case "text", "confirmText" -> addTextContent(contentStream, document, x, y, width, height, fieldValue);
                         case "signature" -> {
                             if (fieldValue.startsWith("data:image")) {
                                 byte[] imageData = Base64.getDecoder().decode(fieldValue.split(",")[1]);
