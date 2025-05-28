@@ -3,9 +3,17 @@ package com.inspection.service;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import com.inspection.dto.ContractPdfFieldDTO;
 import com.inspection.dto.ParticipantPdfFieldDTO;
@@ -16,6 +24,8 @@ import com.inspection.entity.ParticipantPdfField;
 import com.inspection.repository.CodeRepository;
 import com.inspection.repository.ContractPdfFieldRepository;
 import com.inspection.repository.ParticipantPdfFieldRepository;
+import com.inspection.repository.ParticipantTemplateMappingRepository;
+import com.inspection.entity.ParticipantTemplateMapping;
 import com.inspection.util.EncryptionUtil;
 
 import lombok.RequiredArgsConstructor;
@@ -30,6 +40,10 @@ public class ContractPdfService {
     private final ParticipantPdfFieldRepository participantPdfFieldRepository;
     private final CodeRepository codeRepository;
     private final EncryptionUtil encryptionUtil;
+    private final ParticipantTemplateMappingRepository participantTemplateMappingRepository;
+
+    @Value("${file.upload.path}")
+    private String uploadPath;
 
     public void saveFields(SaveContractPdfFieldsRequest request) {
         log.info("Deleting existing fields for PDF: {}", request.getPdfId());
@@ -106,5 +120,45 @@ public class ContractPdfService {
     
     public Optional<ParticipantPdfField> getParticipantFieldByPdfIdAndFieldName(String pdfId, String fieldName) {
         return participantPdfFieldRepository.findByPdfIdAndFieldName(pdfId, fieldName);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] getMonthlySignedPdfsAsZip(Long participantId, int year, int month) throws IOException {
+        log.info("Fetching monthly signed PDFs for participant: {}, year: {}, month: {}", participantId, year, month);
+        List<ParticipantTemplateMapping> mappings = participantTemplateMappingRepository.findMonthlySignedMappingsForParticipant(participantId, year, month);
+
+        if (mappings.isEmpty()) {
+            log.warn("No signed documents found for participant: {}, year: {}, month: {}", participantId, year, month);
+            return null; // 또는 빈 ZIP 파일, 또는 예외 처리
+        }
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+            for (ParticipantTemplateMapping mapping : mappings) {
+                String pdfIdToUse = mapping.getResignedPdfId() != null ? mapping.getResignedPdfId() : mapping.getSignedPdfId();
+                String folder = mapping.getResignedPdfId() != null ? "resigned" : "signed";
+                
+                if (pdfIdToUse == null) {
+                    log.warn("Skipping mapping with null PDF ID: mappingId={}", mapping.getId());
+                    continue;
+                }
+
+                Path pdfPath = Paths.get(uploadPath, folder, pdfIdToUse);
+                if (Files.exists(pdfPath)) {
+                    String templateName = mapping.getContractTemplateMapping().getTemplate().getTemplateName();
+                    String entryName = year + "-" + String.format("%02d", month) + "/" + templateName + "_" + pdfIdToUse;
+                    
+                    ZipEntry zipEntry = new ZipEntry(entryName);
+                    zos.putNextEntry(zipEntry);
+                    Files.copy(pdfPath, zos);
+                    zos.closeEntry();
+                    log.info("Added to ZIP: {}", entryName);
+                } else {
+                    log.warn("PDF file not found for ZIP: {}", pdfPath);
+                }
+            }
+        }
+        log.info("Successfully created ZIP for participant: {}, year: {}, month: {}. Size: {} bytes", participantId, year, month, baos.size());
+        return baos.toByteArray();
     }
 } 

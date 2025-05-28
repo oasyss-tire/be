@@ -188,30 +188,69 @@ public class ContractService {
             // 계약 구분 코드 설정 실패는 계약 생성을 실패시키지 않음
         }
         
-        // 계약번호 생성 및 설정
-        String prefix = String.format("CT-%d-%02d%02d-", 
-            now.getYear(), 
-            now.getMonthValue(), 
-            now.getDayOfMonth()
-        );
+        // 계약번호 생성 및 설정 - 새로운 형식: CT-YYYY-XXXX-MMDD-XXX
+        int currentYear = now.getYear();
+        String monthDay = String.format("%02d%02d", now.getMonthValue(), now.getDayOfMonth());
         
-        // 오늘 날짜의 계약번호들 조회
-        List<String> todayNumbers = contractRepository.findContractNumbersByPrefix(prefix);
+        // 1. 연도별 시퀀스 번호 계산
+        List<String> yearlyNumbers = contractRepository.findContractNumbersByYear(currentYear);
+        int yearlySequence = 1;
         
-        // 다음 시퀀스 번호 찾기
-        int sequence = 1;
-        if (!todayNumbers.isEmpty()) {
-            String lastNumber = todayNumbers.get(0); // 가장 최근 번호
-            sequence = Integer.parseInt(lastNumber.substring(lastNumber.length() - 3)) + 1;
+        if (!yearlyNumbers.isEmpty()) {
+            // 기존 계약 중 가장 높은 연도별 시퀀스 번호 찾기
+            for (String contractNumber : yearlyNumbers) {
+                try {
+                    // CT-2025-0001-0527-001 형식에서 연도별 시퀀스 추출 (네 번째 부분)
+                    String[] parts = contractNumber.split("-");
+                    if (parts.length >= 5) {
+                        int existingYearlySeq = Integer.parseInt(parts[2]);
+                        if (existingYearlySeq >= yearlySequence) {
+                            yearlySequence = existingYearlySeq + 1;
+                        }
+                    }
+                } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+                    log.warn("Invalid contract number format: {}", contractNumber);
+                }
+            }
         }
         
-        // 번호 범위 체크 (001-999)
-        if (sequence > 999) {
+        // 2. 일일 시퀀스 번호 계산
+        List<String> dailyNumbers = contractRepository.findContractNumbersByYearAndMonthDay(currentYear, monthDay);
+        int dailySequence = 1;
+        
+        if (!dailyNumbers.isEmpty()) {
+            // 오늘 날짜의 계약 중 가장 높은 일일 시퀀스 번호 찾기
+            for (String contractNumber : dailyNumbers) {
+                try {
+                    // CT-2025-0001-0527-001 형식에서 일일 시퀀스 추출 (다섯 번째 부분)
+                    String[] parts = contractNumber.split("-");
+                    if (parts.length >= 5) {
+                        int existingDailySeq = Integer.parseInt(parts[4]);
+                        if (existingDailySeq >= dailySequence) {
+                            dailySequence = existingDailySeq + 1;
+                        }
+                    }
+                } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+                    log.warn("Invalid contract number format: {}", contractNumber);
+                }
+            }
+        }
+        
+        // 3. 범위 체크
+        if (yearlySequence > 9999) {
+            throw new RuntimeException("연간 최대 계약 생성 수(9999)를 초과했습니다.");
+        }
+        if (dailySequence > 999) {
             throw new RuntimeException("일일 최대 계약 생성 수(999)를 초과했습니다.");
         }
         
-        // 계약번호 설정
-        contract.setContractNumber(prefix + String.format("%03d", sequence));
+        // 4. 새로운 형식으로 계약번호 생성: CT-YYYY-XXXX-MMDD-XXX
+        String contractNumber = String.format("CT-%d-%04d-%s-%03d", 
+            currentYear, yearlySequence, monthDay, dailySequence);
+        
+        contract.setContractNumber(contractNumber);
+        log.info("Generated contract number: {} (yearly: {}, daily: {})", 
+            contractNumber, yearlySequence, dailySequence);
         
         // 4. 템플릿 매핑 처리
         List<ContractTemplate> templates = new ArrayList<>();

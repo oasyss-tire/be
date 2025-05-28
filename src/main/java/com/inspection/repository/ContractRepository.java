@@ -57,6 +57,31 @@ public interface ContractRepository extends JpaRepository<Contract, Long> {
     List<String> findContractNumbersByPrefix(@Param("prefix") String prefix);
     
     /**
+     * 특정 연도에 생성된 계약 수를 조회 (연도별 시퀀스용)
+     */
+    @Query("SELECT COUNT(c) FROM Contract c " +
+           "WHERE FUNCTION('YEAR', c.createdAt) = :year")
+    long countContractsByYear(@Param("year") int year);
+    
+    /**
+     * 새로운 형식의 계약번호 중 특정 연도에 해당하는 것들을 조회
+     * 형식: CT-YYYY-XXXX-MMDD-XXX
+     */
+    @Query("SELECT c.contractNumber FROM Contract c " +
+           "WHERE c.contractNumber LIKE CONCAT('CT-', :year, '-%') " +
+           "ORDER BY c.contractNumber DESC")
+    List<String> findContractNumbersByYear(@Param("year") int year);
+    
+    /**
+     * 새로운 형식의 계약번호 중 특정 연도와 날짜에 해당하는 것들을 조회
+     * 형식: CT-YYYY-XXXX-MMDD-XXX
+     */
+    @Query("SELECT c.contractNumber FROM Contract c " +
+           "WHERE c.contractNumber LIKE CONCAT('CT-', :year, '-', '%', '-', :monthDay, '-%') " +
+           "ORDER BY c.contractNumber DESC")
+    List<String> findContractNumbersByYearAndMonthDay(@Param("year") int year, @Param("monthDay") String monthDay);
+    
+    /**
      * 특정 계약과 기본 연관 엔티티를 함께 조회 (N+1 문제 해결)
      */
     @Query("SELECT c FROM Contract c " +

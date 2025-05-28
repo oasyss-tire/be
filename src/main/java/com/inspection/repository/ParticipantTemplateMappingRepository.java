@@ -28,4 +28,17 @@ public interface ParticipantTemplateMappingRepository extends JpaRepository<Part
     List<ParticipantTemplateMapping> findAllByContractIdAndParticipantId(
             @Param("contractId") Long contractId, 
             @Param("participantId") Long participantId);
+
+    @Query("SELECT ptm FROM ParticipantTemplateMapping ptm " +
+           "WHERE ptm.participant.id = :participantId " +
+           "AND (" +
+           "  (FUNCTION('YEAR', ptm.signedAt) = :year AND FUNCTION('MONTH', ptm.signedAt) = :month AND ptm.signed = true AND ptm.resignedAt IS NULL)" +
+           "  OR " +
+           "  (FUNCTION('YEAR', ptm.resignedAt) = :year AND FUNCTION('MONTH', ptm.resignedAt) = :month AND ptm.signed = true)" +
+           ")")
+    List<ParticipantTemplateMapping> findMonthlySignedMappingsForParticipant(
+            @Param("participantId") Long participantId,
+            @Param("year") int year,
+            @Param("month") int month
+    );
 } 

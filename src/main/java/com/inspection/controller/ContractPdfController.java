@@ -21,6 +21,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.Set;
+import java.time.LocalDate;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -1549,6 +1550,44 @@ public class ContractPdfController {
         } catch (Exception e) {
             log.error("템플릿 필드 업데이트 중 오류 발생", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/participant/{participantId}/signed-pdfs/{year}/{month}")
+    public ResponseEntity<byte[]> downloadMonthlySignedPdfs(
+            @PathVariable Long participantId,
+            @PathVariable int year,
+            @PathVariable int month) {
+        try {
+            log.info("Request to download monthly signed PDFs for participant: {}, year: {}, month: {}", participantId, year, month);
+
+            // 입력값 검증 (예: 유효한 연도, 월 범위)
+            if (month < 1 || month > 12) {
+                return ResponseEntity.badRequest().body("Invalid month value.".getBytes());
+            }
+            // 필요에 따라 연도 범위도 검증 가능
+
+            byte[] zipBytes = contractPdfService.getMonthlySignedPdfsAsZip(participantId, year, month);
+
+            if (zipBytes == null || zipBytes.length == 0) {
+                log.info("No signed PDFs found for participant: {}, year: {}, month: {}. Returning 404.", participantId, year, month);
+                return ResponseEntity.notFound().build();
+            }
+
+            String zipFileName = String.format("signed_pdfs_%d_%d-%02d.zip", participantId, year, month);
+            String encodedZipFileName = URLEncoder.encode(zipFileName, StandardCharsets.UTF_8.toString()).replaceAll("\\+", "%20");
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, "application/zip")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedZipFileName)
+                    .body(zipBytes);
+
+        } catch (IOException e) {
+            log.error("Error generating monthly signed PDFs ZIP for participant: {}, year: {}, month: {}: {}", participantId, year, month, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error generating ZIP file.".getBytes());
+        } catch (Exception e) {
+            log.error("Unexpected error while downloading monthly signed PDFs for participant: {}, year: {}, month: {}: {}", participantId, year, month, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An unexpected error occurred.".getBytes());
         }
     }
 } 
